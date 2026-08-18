@@ -1,0 +1,45 @@
+{
+	"name": "tour-plotter",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"preview": "vite preview",
+		"prepare": "svelte-kit sync || echo ''",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && tsc --project scripts/tsconfig.json",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"test:e2e": "playwright test",
+		"fetch-basemap": "tsx scripts/fetch-basemap.ts"
+	},
+	"devDependencies": {
+		"@playwright/test": "^1.62.1",
+		"@sveltejs/adapter-static": "^3.0.10",
+		"@sveltejs/kit": "^2.63.0",
+		"@sveltejs/vite-plugin-svelte": "^7.1.2",
+		"@types/d3-geo": "^3.1.1",
+		"@types/geojson": "^7946.0.16",
+		"@types/node": "^26.2.0",
+		"jsdom": "^30.0.1",
+		"svelte": "^5.56.1",
+		"svelte-check": "^4.6.0",
+		"tsx": "^4.23.12",
+		"typescript": "^6.0.3",
+		"vite": "^8.0.16",
+		"vitest": "^4.1.10"
+	},
+	"dependencies": {
+		"@mapbox/vector-tile": "^3.0.0",
+		"@tmcw/togeojson": "^7.1.2",
+		"@turf/bbox": "^7.4.0",
+		"@turf/length": "^7.4.0",
+		"d3-geo": "^3.1.1",
+		"pbf": "^5.1.2"
+	},
+	"allowScripts": {
+		"esbuild@0.28.2": true
+	}
+}

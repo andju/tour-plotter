@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="tour-plotter-e2e" xmlns="http://www.topografix.com/GPX/1/1">
+  <trk>
+    <name>Sample Loop</name>
+    <trkseg>
+      <trkpt lat="52.5200" lon="13.4050"><ele>34.5</ele><time>2026-01-01T08:00:00Z</time></trkpt>
+      <trkpt lat="52.5300" lon="13.4150"><ele>40.0</ele><time>2026-01-01T08:10:00Z</time></trkpt>
+      <trkpt lat="52.5400" lon="13.4050"><ele>38.0</ele><time>2026-01-01T08:20:00Z</time></trkpt>
+      <trkpt lat="52.5300" lon="13.3950"><ele>36.0</ele><time>2026-01-01T08:30:00Z</time></trkpt>
+      <trkpt lat="52.5200" lon="13.4050"><ele>34.5</ele><time>2026-01-01T08:40:00Z</time></trkpt>
+    </trkseg>
+  </trk>
+</gpx>

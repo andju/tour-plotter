@@ -1,0 +1,37 @@
+{
+  "name": "tour-plotter",
+  "image": "mcr.microsoft.com/devcontainers/base:debian-12",
+  "features": {
+    "ghcr.io/devcontainers/features/node:2": {},
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
+  },
+  "mounts": [
+    "source=claude-code-config,target=/home/vscode/.claude,type=volume",
+    "source=${localWorkspaceFolderBasename}-node-modules,target=${containerWorkspaceFolder}/node_modules,type=volume"
+  ],
+  "containerUser": "vscode",
+  "remoteUser": "vscode",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "anthropic.claude-code",
+        "svelte.svelte-vscode",
+        "ardenivanov.svelte-intellisense",
+        "vitest.explorer",
+        "ms-playwright.playwright",
+        "gruntfuggly.todo-tree"
+      ],
+      "settings": {
+        "claudeCode.allowDangerouslySkipPermissions": true,
+        "claudeCode.initialPermissionMode": "bypassPermissions",
+        "todo-tree.ripgrep.ripgrep": "/usr/bin/rg"
+      }
+    }
+  },
+  "updateRemoteUserUID": true,
+  "runArgs": [
+    "--userns=keep-id"
+  ],
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y ripgrep && sudo chown -R vscode:vscode /home/vscode/.claude node_modules && npm install && npx playwright install --with-deps chromium",
+  "postStartCommand": "git config core.autocrlf input"
+}

@@ -1,0 +1,476 @@
+import { describe, expect, it } from 'vitest';
+import type { BasemapLayers } from '../basemap/types';
+import type { Bbox } from '../geo/bbox';
+import { buildProjection } from '../geo/projection';
+import type { Track } from '../gpx/types';
+import { composeScene, composeScenePhase, SCENE_PHASES, type OverlaySettings, type SceneInput, type SceneStyle } from './scene';
+import { SvgRenderer } from './svg';
+
+const bbox: Bbox = [13.0, 52.0, 13.5, 52.5];
+
+const style: SceneStyle = {
+	backgroundFill: '#e5f0ff',
+	landFill: '#eeeeee',
+	coastlineStroke: '#999999',
+	waterFill: '#cceeff',
+	waterStroke: '#88bbdd',
+	waterwayStroke: '#88bbdd',
+	urbanFill: '#dddddd',
+	parkFill: '#ccddcc',
+	admin0Stroke: '#666666',
+	admin1Stroke: '#aaaaaa',
+	cityDotFill: '#000000',
+	textColor: '#111111',
+	textHalo: '#ffffff',
+	trackCasing: '#ffffff',
+	scaleBarColor: '#111111',
+	fontFamily: 'sans-serif',
+	referenceStrokeWidthPx: { coastline: 2, water: 1, waterway: 1, admin0: 1.5, admin1: 1, trackCasingExtra: 2 },
+	referenceCityDotRadiusPx: { largest: 4, smallest: 1.5 },
+	referenceFontSizePx: { cityLargest: 13, citySmallest: 8.5, title: 24, stats: 14, credit: 10, scaleBar: 10 }
+};
+
+function naturalEarthBasemap(): BasemapLayers {
+	return {
+		baseFill: 'water',
+		land: {
+			type: 'FeatureCollection',
+			features: [
+				{
+					type: 'Feature',
+					properties: {},
+					geometry: {
+						type: 'Polygon',
+						coordinates: [
+							[
+								[13.0, 52.0],
+								[13.5, 52.0],
+								[13.5, 52.5],
+								[13.0, 52.5],
+								[13.0, 52.0]
+							]
+						]
+					}
+				}
+			]
+		},
+		water: {
+			type: 'FeatureCollection',
+			features: [
+				{
+					type: 'Feature',
+					properties: { min_zoom: 2 },
+					geometry: {
+						type: 'Polygon',
+						coordinates: [
+							[
+								[13.15, 52.15],
+								[13.2, 52.15],
+								[13.2, 52.2],
+								[13.15, 52.15]
+							]
+						]
+					}
+				}
+			]
+		},
+		waterways: {
+			type: 'FeatureCollection',
+			features: [
+				{
+					type: 'Feature',
+					properties: {},
+					geometry: { type: 'LineString', coordinates: [[13.05, 52.05], [13.1, 52.1]] }
+				}
+			]
+		},
+		urban: { type: 'FeatureCollection', features: [] },
+		parks: { type: 'FeatureCollection', features: [] },
+		admin0: {
+			type: 'FeatureCollection',
+			features: [
+				{
+					type: 'Feature',
+					properties: {},
+					geometry: { type: 'LineString', coordinates: [[13.2, 52.0], [13.2, 52.5]] }
+				}
+			]
+		},
+		admin1: {
+			type: 'FeatureCollection',
+			features: [
+				{
+					type: 'Feature',
+					properties: {},
+					geometry: { type: 'LineString', coordinates: [[13.0, 52.2], [13.5, 52.2]] }
+				}
+			]
+		},
+		places: {
+			type: 'FeatureCollection',
+			features: [
+				{
+					type: 'Feature',
+					properties: { name: 'Testville', rank: 0, size: 0 },
+					geometry: { type: 'Point', coordinates: [13.25, 52.25] }
+				}
+			]
+		},
+		attribution: '© Natural Earth'
+	};
+}
+
+function basemapWithPlaces(
+	features: GeoJSON.Feature<GeoJSON.Point, { name: string; rank: number; size: number }>[]
+): BasemapLayers {
+	return { ...naturalEarthBasemap(), places: { type: 'FeatureCollection', features } };
+}
+
+const track: Track = {
+	id: 't1',
+	name: 'Sample',
+	segments: [
+		[
+			{ lon: 13.1, lat: 52.1, ele: null, time: null },
+			{ lon: 13.4, lat: 52.4, ele: null, time: null }
+		]
+	],
+	style: { color: '#ff0000', widthPx: 3, opacity: 1, visible: true }
+};
+
+const overlay: OverlaySettings = {
+	title: 'Test Map',
+	statsText: '10 km',
+	description: 'A test description of the ride.',
+	showAdmin1: true,
+	showCredit: true,
+	showScaleBar: true,
+	detailBias: 'rich',
+	cityLabelLanguage: 'en',
+	citySize: 10
+};
+
+// Deterministic stand-in for Canvas-based measurement (unavailable under jsdom).
+const measureTextWidth = (text: string, font: { sizePx: number }) => text.length * font.sizePx * 0.5;
+
+function sceneInputAt(outputWidth: number, outputHeight: number): SceneInput {
+	const marginPx = 20 * (outputWidth / 1000);
+	const projection = buildProjection(outputWidth, outputHeight, bbox, marginPx);
+	return {
+		outputWidth,
+		outputHeight,
+		marginPx,
+		projection,
+		basemap: naturalEarthBasemap(),
+		tracks: [track],
+		overlay,
+		style,
+		measureTextWidth
+	};
+}
+
+function renderAt(outputWidth: number, outputHeight: number) {
+	const input = sceneInputAt(outputWidth, outputHeight);
+	const renderer = new SvgRenderer(outputWidth, outputHeight, input.projection);
+	composeScene(renderer, input);
+	return renderer.serialize();
+}
+
+function numbersFor(svg: string, attr: string): number[] {
+	return [...svg.matchAll(new RegExp(`${attr}="(-?[\\d.]+)"`, 'g'))].map((m) => Number(m[1]));
+}
+
+/** Stroke widths on <path> elements only — text labels also carry a
+ * stroke-width (their halo), which would otherwise pollute a plain
+ * `numbersFor(svg, 'stroke-width')` count. */
+function pathStrokeWidths(svg: string): number[] {
+	const paths = svg.match(/<path[^>]*\/>/g) ?? [];
+	return paths.flatMap((p) => numbersFor(p, 'stroke-width'));
+}
+
+function numericBbox(pathData: string): { width: number; height: number } {
+	const nums = pathData.match(/-?[\d.]+/g)!.map(Number);
+	const xs = nums.filter((_, i) => i % 2 === 0);
+	const ys = nums.filter((_, i) => i % 2 === 1);
+	return { width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) };
+}
+
+describe('composeScene — scale invariant', () => {
+	const small = renderAt(1000, 1000);
+	const large = renderAt(2000, 2000);
+
+	it('doubles stroke widths', () => {
+		const smallWidths = numbersFor(small, 'stroke-width');
+		const largeWidths = numbersFor(large, 'stroke-width');
+		expect(largeWidths).toHaveLength(smallWidths.length);
+		smallWidths.forEach((w, i) => expect(largeWidths[i]).toBeCloseTo(w * 2, 5));
+	});
+
+	it('doubles font sizes', () => {
+		const smallSizes = numbersFor(small, 'font-size');
+		const largeSizes = numbersFor(large, 'font-size');
+		expect(largeSizes).toHaveLength(smallSizes.length);
+		smallSizes.forEach((s, i) => expect(largeSizes[i]).toBeCloseTo(s * 2, 5));
+	});
+
+	it('doubles the city dot radius', () => {
+		const smallR = numbersFor(small, 'r');
+		const largeR = numbersFor(large, 'r');
+		expect(largeR).toHaveLength(smallR.length);
+		smallR.forEach((r, i) => expect(largeR[i]).toBeCloseTo(r * 2, 5));
+	});
+
+	it('doubles the bounding box of the track path', () => {
+		// Compares bbox rather than raw coordinate lists: d3-geo's adaptive
+		// resampling of great-circle edges can emit a different number of
+		// intermediate points at different scales even when the underlying
+		// geographic extent is identical. Bbox is invariant to that. Uses
+		// the track (a plain 2-point line, drawn twice — casing then color,
+		// so the last two paths) rather than the basemap polygons, which
+		// pick up more resampling noise from their curved edges and aren't
+		// the thing this test is about.
+		const smallD = [...small.matchAll(/d="([^"]+)"/g)].map((m) => m[1]).at(-1)!;
+		const largeD = [...large.matchAll(/d="([^"]+)"/g)].map((m) => m[1]).at(-1)!;
+		const smallBox = numericBbox(smallD);
+		const largeBox = numericBbox(largeD);
+		expect(largeBox.width).toBeCloseTo(smallBox.width * 2, 1);
+		expect(largeBox.height).toBeCloseTo(smallBox.height * 2, 1);
+	});
+
+	it('positions overlay text at doubled coordinates', () => {
+		const smallX = numbersFor(small, 'x');
+		const largeX = numbersFor(large, 'x');
+		expect(largeX).toHaveLength(smallX.length);
+		smallX.forEach((x, i) => expect(largeX[i]).toBeCloseTo(x * 2, 5));
+	});
+});
+
+describe('composeScene — layer toggles', () => {
+	it('omits admin1 borders when showAdmin1 is false', () => {
+		const projection = buildProjection(1000, 1000, bbox, 20);
+		const renderer = new SvgRenderer(1000, 1000, projection);
+		composeScene(renderer, {
+			outputWidth: 1000,
+			outputHeight: 1000,
+			marginPx: 20,
+			projection,
+			basemap: naturalEarthBasemap(),
+			tracks: [],
+			overlay: { ...overlay, showAdmin1: false, title: null, statsText: null, description: null, showCredit: false, showScaleBar: false },
+			style,
+			measureTextWidth
+		});
+		const svg = renderer.serialize();
+		// Coastline (from land fill/stroke split) + water + waterway + admin0
+		// each contribute exactly one stroked path in this fixture.
+		expect(pathStrokeWidths(svg)).toHaveLength(4);
+	});
+
+	it('skips invisible tracks', () => {
+		const projection = buildProjection(1000, 1000, bbox, 20);
+		const renderer = new SvgRenderer(1000, 1000, projection);
+		const hidden: Track = { ...track, style: { ...track.style, visible: false } };
+		composeScene(renderer, {
+			outputWidth: 1000,
+			outputHeight: 1000,
+			marginPx: 20,
+			projection,
+			basemap: naturalEarthBasemap(),
+			tracks: [hidden],
+			overlay: { ...overlay, showAdmin1: false, title: null, statsText: null, description: null, showCredit: false, showScaleBar: false },
+			style,
+			measureTextWidth
+		});
+		expect(renderer.serialize()).not.toContain(hidden.style.color);
+	});
+
+	it('never strokes water polygons when baseFill is land (tiled data has no seam-free outline)', () => {
+		const projection = buildProjection(1000, 1000, bbox, 20);
+		const renderer = new SvgRenderer(1000, 1000, projection);
+		const tiledBasemap: BasemapLayers = { ...naturalEarthBasemap(), baseFill: 'land', land: null };
+		composeScene(renderer, {
+			outputWidth: 1000,
+			outputHeight: 1000,
+			marginPx: 20,
+			projection,
+			basemap: tiledBasemap,
+			tracks: [],
+			overlay: { ...overlay, showAdmin1: false, title: null, statsText: null, description: null, showCredit: false, showScaleBar: false },
+			style,
+			measureTextWidth
+		});
+		// Only the waterway line and admin0 border should carry a stroke —
+		// the water polygon must be fill-only.
+		expect(pathStrokeWidths(renderer.serialize())).toHaveLength(2);
+	});
+});
+
+describe('composeScene — places', () => {
+	function renderPlaces(features: GeoJSON.Feature<GeoJSON.Point, { name: string; rank: number; size: number }>[]) {
+		const projection = buildProjection(1000, 1000, bbox, 20);
+		const renderer = new SvgRenderer(1000, 1000, projection);
+		composeScene(renderer, {
+			outputWidth: 1000,
+			outputHeight: 1000,
+			marginPx: 20,
+			projection,
+			basemap: basemapWithPlaces(features),
+			tracks: [],
+			overlay: { ...overlay, title: null, statsText: null, description: null, showCredit: false, showScaleBar: false },
+			style,
+			measureTextWidth
+		});
+		return renderer.serialize();
+	}
+
+	const feature = (
+		name: string,
+		rank: number,
+		size: number,
+		coordinates: [number, number]
+	): GeoJSON.Feature<GeoJSON.Point, { name: string; rank: number; size: number }> => ({
+		type: 'Feature',
+		properties: { name, rank, size },
+		geometry: { type: 'Point', coordinates }
+	});
+
+	it('omits a place whose size exceeds the citySize cutoff', () => {
+		const projection = buildProjection(1000, 1000, bbox, 20);
+		const renderer = new SvgRenderer(1000, 1000, projection);
+		composeScene(renderer, {
+			outputWidth: 1000,
+			outputHeight: 1000,
+			marginPx: 20,
+			projection,
+			basemap: basemapWithPlaces([feature('Kept', 0, 5, [13.2, 52.2]), feature('Dropped', 0, 6, [13.3, 52.3])]),
+			tracks: [],
+			overlay: { ...overlay, citySize: 5, title: null, statsText: null, description: null, showCredit: false, showScaleBar: false },
+			style,
+			measureTextWidth
+		});
+		const svg = renderer.serialize();
+		expect(svg).toContain('Kept');
+		expect(svg).not.toContain('Dropped');
+	});
+
+	it('culls a place whose projected position falls outside the canvas', () => {
+		const svg = renderPlaces([feature('OnCanvas', 0, 0, [13.25, 52.25]), feature('OffCanvas', 0, 0, [170, 80])]);
+		expect([...svg.matchAll(/<circle/g)]).toHaveLength(1);
+		expect(svg).toContain('OnCanvas');
+		expect(svg).not.toContain('OffCanvas');
+	});
+
+	it('draws a larger dot and label for a smaller-size (more prominent) place', () => {
+		const svg = renderPlaces([feature('Big', 0, 0, [13.1, 52.4]), feature('Small', 0, 9, [13.4, 52.1])]);
+		const radii = numbersFor(svg, 'r');
+		const fontSizes = numbersFor(svg, 'font-size').filter((s) => s < style.referenceFontSizePx.title);
+
+		expect(radii).toHaveLength(2);
+		expect(Math.max(...radii)).toBeGreaterThan(Math.min(...radii));
+		expect(fontSizes).toHaveLength(2);
+		expect(Math.max(...fontSizes)).toBeGreaterThan(Math.min(...fontSizes));
+	});
+});
+
+describe('composeScene — phase composition', () => {
+	it('produces markup identical to running each phase in order', () => {
+		const input = sceneInputAt(1000, 1000);
+		const renderer = new SvgRenderer(1000, 1000, input.projection);
+		for (const phase of SCENE_PHASES) composeScenePhase(renderer, input, phase);
+
+		expect(renderer.serialize()).toBe(renderAt(1000, 1000));
+	});
+
+	it("'basemap' phase draws the background but no tracks or overlay text", () => {
+		const input = sceneInputAt(1000, 1000);
+		const renderer = new SvgRenderer(1000, 1000, input.projection);
+		composeScenePhase(renderer, input, 'basemap');
+
+		const svg = renderer.serialize();
+		expect(svg).toContain(`fill="${style.backgroundFill}"`);
+		expect(svg).not.toContain('<text');
+		expect(svg).not.toContain(track.style.color);
+	});
+
+	it("'tracks' phase draws only the track paths", () => {
+		const input = sceneInputAt(1000, 1000);
+		const renderer = new SvgRenderer(1000, 1000, input.projection);
+		composeScenePhase(renderer, input, 'tracks');
+
+		const svg = renderer.serialize();
+		// Casing pass + colour pass, nothing else.
+		expect([...svg.matchAll(/<path/g)]).toHaveLength(2);
+		expect(svg).toContain(track.style.color);
+		expect(svg).not.toContain('<text');
+		expect(svg).not.toContain('<circle');
+	});
+
+	it("'overlay' phase draws labels/title/credit but no basemap fill or tracks", () => {
+		const input = sceneInputAt(1000, 1000);
+		const renderer = new SvgRenderer(1000, 1000, input.projection);
+		composeScenePhase(renderer, input, 'overlay');
+
+		const svg = renderer.serialize();
+		expect(svg).toContain('<text');
+		expect(svg).not.toContain(`fill="${style.backgroundFill}"`);
+		expect(svg).not.toContain(track.style.color);
+	});
+});
+
+describe('composeScene — title/description backgrounds', () => {
+	it('paints a neutral rect behind the title, sized to the text rather than the full row', () => {
+		const svg = renderAt(1000, 1000);
+		// title font-size is 24 at the 1000px reference; box height = 24 * 1.5 = 36.
+		// 'Test Map' is 8 chars, measureTextWidth stub gives 8 * 24 * 0.5 = 96 wide;
+		// + 2 * (24 * 0.5) padding = 120 wide, centred on x=500 -> x=440.
+		expect(svg).toContain(`<rect x="440" y="0" width="120" height="36" fill="${style.textHalo}" />`);
+		expect(svg).toContain('>Test Map<');
+		// Definitely narrower than the full canvas width — the bug this guards against.
+		expect(svg).not.toContain(`width="1000" height="36"`);
+	});
+
+	it('paints a neutral rect behind the description, sized to the text and stacked directly below the title band', () => {
+		const svg = renderAt(1000, 1000);
+		// title band height = 24 * 1.5 = 36; description band height = 14 * 1.5 = 21,
+		// centred at titleBandPx + descriptionBandPx / 2 = 36 + 10.5 = 46.5 -> rect y = 36.
+		const descriptionRect = svg.match(/<rect x="[\d.]+" y="36" width="[\d.]+" height="21" fill="#ffffff" \/>/);
+		expect(descriptionRect).not.toBeNull();
+		expect(svg).toContain('>A test description of the ride.<');
+		expect(svg).not.toContain(`width="1000" height="21"`);
+	});
+
+	it('omits both backgrounds when neither title nor description is set', () => {
+		const projection = buildProjection(1000, 1000, bbox, 20);
+		const renderer = new SvgRenderer(1000, 1000, projection);
+		composeScene(renderer, {
+			outputWidth: 1000,
+			outputHeight: 1000,
+			marginPx: 20,
+			projection,
+			basemap: naturalEarthBasemap(),
+			tracks: [track],
+			overlay: { ...overlay, title: null, description: null, showCredit: false, showScaleBar: false, statsText: null },
+			style,
+			measureTextWidth
+		});
+		expect(renderer.serialize()).not.toContain(`fill="${style.textHalo}"`);
+	});
+
+	it('gives stats, scale bar and credit text a halo, not a filled background box', () => {
+		const svg = renderAt(1000, 1000);
+		const statsText = [...svg.matchAll(/<text[^>]*>10 km<\/text>/g)];
+		const creditText = svg.match(/<text[^>]*>© Natural Earth<\/text>/);
+
+		expect(statsText.length).toBeGreaterThan(0);
+		for (const match of statsText) expect(match[0]).toContain(`stroke="${style.textHalo}"`);
+		expect(creditText?.[0]).toContain(`stroke="${style.textHalo}"`);
+	});
+
+	it('keeps the title/description text itself free of a per-glyph halo (the background box is the backing)', () => {
+		const svg = renderAt(1000, 1000);
+		const titleText = svg.match(/<text[^>]*>Test Map<\/text>/);
+		const descriptionText = svg.match(/<text[^>]*>A test description of the ride\.<\/text>/);
+		expect(titleText?.[0]).not.toContain('stroke=');
+		expect(descriptionText?.[0]).not.toContain('stroke=');
+	});
+});
