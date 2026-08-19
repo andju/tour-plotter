@@ -5,14 +5,7 @@ const EDGE_SAMPLES = 32;
 
 /**
  * Builds a Mercator projection that fits `bbox` into a `width` x `height`
- * canvas, inset by `marginPx` on every side, and by `topInsetPx` (on top of
- * `marginPx`) at the top only — the room a title/description band reserves
- * above the map (see `reservedTopPx` on `Framing` in buildSceneInput.ts).
- * The projection still covers the *entire* canvas, top inset included —
- * only the fit (scale + vertical centering) treats that strip as
- * unavailable — so real basemap geometry still projects into the band and
- * a caller that inverts `[0,0]`..`[width,height]` (`visibleBbox` below)
- * still gets the true visible extent, band included.
+ * canvas, inset by `marginPx` on every side.
  *
  * This computes scale/translate by hand rather than via d3-geo's
  * `fitExtent(extent, polygon)`, which turned out to have two sharp edges
@@ -41,13 +34,7 @@ const EDGE_SAMPLES = 32;
  * that cross it (minLon > maxLon, see Bbox) are handled the same as any
  * other bbox — no special-casing needed past this point.
  */
-export function buildProjection(
-	width: number,
-	height: number,
-	bbox: Bbox,
-	marginPx: number,
-	topInsetPx = 0
-): GeoProjection {
+export function buildProjection(width: number, height: number, bbox: Bbox, marginPx: number): GeoProjection {
 	const [minLon, minLat, maxLon, maxLat] = bbox;
 	const centerLon = normalizeLon(minLon + bboxWidthDeg(minLon, maxLon) / 2);
 
@@ -69,15 +56,12 @@ export function buildProjection(
 	}
 
 	const availableWidth = width - 2 * marginPx;
-	const availableHeight = height - topInsetPx - 2 * marginPx;
+	const availableHeight = height - 2 * marginPx;
 	const scale = Math.min(availableWidth / (x1 - x0), availableHeight / (y1 - y0));
 
 	const centerX = (x0 + x1) / 2;
 	const centerY = (y0 + y1) / 2;
-	const translate: [number, number] = [
-		width / 2 - centerX * scale,
-		topInsetPx + (height - topInsetPx) / 2 - centerY * scale
-	];
+	const translate: [number, number] = [width / 2 - centerX * scale, height / 2 - centerY * scale];
 
 	// Adaptive resampling (d3-geo's default projection.precision) subdivides
 	// every edge to keep curvature error under a threshold — worthwhile for a

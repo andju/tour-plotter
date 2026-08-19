@@ -46,8 +46,8 @@ function emptyBasemap(): BasemapLayers {
 
 const overlay: OverlaySettings = {
 	title: 'Test Map',
+	titlePosition: 'top-center',
 	statsText: '10 km',
-	description: 'A test description.',
 	showAdmin1: true,
 	showCredit: true,
 	showScaleBar: true,
@@ -64,7 +64,6 @@ function sceneInput(overrides: Partial<SceneInput> = {}): SceneInput {
 		outputWidth: 1000,
 		outputHeight: 1000,
 		marginPx: 20,
-		reservedTopPx: 0,
 		projection,
 		visibleBbox: visibleBbox(projection, 1000, 1000),
 		basemap: emptyBasemap(),
@@ -157,9 +156,15 @@ describe('overlayLayerKey', () => {
 		expect(overlayLayerKey(edited)).not.toBe(overlayLayerKey(base));
 	});
 
-	it('is unaffected by the title (the title/description text belongs to the uncached "text" phase)', () => {
+	it('is unaffected by the title (the title text belongs to the uncached "text" phase)', () => {
 		const base = sceneInput();
 		const edited = sceneInput({ ...base, overlay: { ...overlay, title: 'Other Title' } });
+		expect(overlayLayerKey(edited)).toBe(overlayLayerKey(base));
+	});
+
+	it('is unaffected by titlePosition (it belongs to the uncached "text" phase, same as the title text)', () => {
+		const base = sceneInput();
+		const edited = sceneInput({ ...base, overlay: { ...overlay, titlePosition: 'bottom-right' } });
 		expect(overlayLayerKey(edited)).toBe(overlayLayerKey(base));
 	});
 
@@ -169,22 +174,10 @@ describe('overlayLayerKey', () => {
 		expect(overlayLayerKey(edited)).not.toBe(overlayLayerKey(base));
 	});
 
-	it('is unaffected by the description (the title/description text belongs to the uncached "text" phase)', () => {
-		const base = sceneInput();
-		const edited = sceneInput({ ...base, overlay: { ...overlay, description: 'Other description' } });
-		expect(overlayLayerKey(edited)).toBe(overlayLayerKey(base));
-	});
-
 	it('is unaffected by showAdmin1 or detailBias', () => {
 		const base = sceneInput();
 		const edited = sceneInput({ ...base, overlay: { ...overlay, showAdmin1: false, detailBias: 'minimal' } });
 		expect(overlayLayerKey(edited)).toBe(overlayLayerKey(base));
-	});
-
-	it('changes when reservedTopPx changes (a title/description presence transition affects city-label culling)', () => {
-		const base = sceneInput();
-		const edited = sceneInput({ ...base, reservedTopPx: 42 });
-		expect(overlayLayerKey(edited)).not.toBe(overlayLayerKey(base));
 	});
 
 	it('changes for a new projection instance', () => {

@@ -29,9 +29,7 @@ function pngDimensions(buffer: Buffer): { width: number; height: number } {
 /**
  * The basemap's 'basemap' phase always starts with an opaque background
  * rect spanning the entire canvas (land or water fill — see
- * composeScenePhase in scene.ts), including any reserved title/description
- * band (the band is real map area now, not a separate blank strip — see
- * buildProjection's `topInsetPx`), so a pixel sampled anywhere on the map
+ * composeScenePhase in scene.ts), so a pixel sampled anywhere on the map
  * layer is a reliable proxy for "the basemap bitmap was actually painted"
  * vs. left cleared/transparent by a caching bug. Sampled at the vertical
  * midpoint, to the left of any city label/credit/scale-bar text.
@@ -95,7 +93,7 @@ test.describe('GPX export', () => {
 		expect(svg.startsWith('<svg')).toBe(true);
 	});
 
-	test('a title or description never changes the exported PNG dimensions', async ({ page }) => {
+	test('a title never changes the exported PNG dimensions', async ({ page }) => {
 		await loadFixtureTrack(page);
 		await setDimensions(page, 1000, 1000);
 
@@ -104,13 +102,11 @@ test.describe('GPX export', () => {
 		const baselineDimensions = pngDimensions(readFileSync(await (await baselineDownload).path()));
 		expect(baselineDimensions).toEqual({ width: 1000, height: 1000 });
 
-		await page.getByLabel('Title').fill('Alpine Loop');
-		await page.getByLabel('Description').fill('A weekend ride through the Alps.');
+		await page.getByLabel('Title', { exact: true }).fill('Alpine Loop');
 
-		// The title/description band is reserved *inside* the requested
-		// dimensions (the map's own fit shrinks slightly to make room — see
-		// buildProjection's `topInsetPx`), not by growing the canvas, so the
-		// export must come back at exactly the size the user asked for.
+		// The title is drawn directly over the map, not by growing the
+		// canvas, so the export must come back at exactly the size the user
+		// asked for.
 		const titledDownload = page.waitForEvent('download');
 		await page.getByText('Export PNG').click();
 		const titledDimensions = pngDimensions(readFileSync(await (await titledDownload).path()));
@@ -203,7 +199,6 @@ test.describe('preview redraws', () => {
 		await page.getByText('Show stats').click();
 		await page.getByText('Scale bar').click();
 		await page.getByText('Show data credit').click();
-		await page.getByLabel('Description').fill('A description');
 
 		await expect
 			.poll(async () => Buffer.compare(await canvas.screenshot(), before))
@@ -213,61 +208,6 @@ test.describe('preview redraws', () => {
 		// A screenshot changing isn't enough: a blank/transparent canvas also
 		// differs from `before`. Confirm the basemap is actually still there.
 		expect(await cornerPixelIsOpaque(canvas)).toBe(true);
-	});
-
-	test('the basemap is visible beside the title pill, not a blank strip', async ({ page }) => {
-		// Regression test for the "map pushed down, no basemap left/right of
-		// the title" bug: title/description used to reserve space by growing
-		// the canvas and shifting the map down, leaving a brand-new strip at
-		// the top with no basemap data fetched for it (a flat fill in the
-		// preview). Now the band is reserved inside the map's own fit (see
-		// buildProjection's `topInsetPx`), so real basemap paints all the way
-		// to the top of the canvas, including beside the pill.
-		await loadFixtureTrack(page);
-		await expect(page.getByText('Export PNG')).toBeEnabled();
-
-		const canvas = page.locator('.preview-container canvas.map-layer');
-		await page.getByLabel('Title').fill('Alpine Loop');
-
-		// Sampled near the very top-left corner — inside the reserved band,
-		// away from the centred title pill — where the old behaviour left an
-		// untouched (transparent, then flat-filled) strip.
-		await expect
-			.poll(() =>
-				canvas.evaluate((el: HTMLCanvasElement) => {
-					const ctx = el.getContext('2d')!;
-					const { data } = ctx.getImageData(2, 2, 1, 1);
-					return data[3] === 255;
-				})
-			)
-			.toBe(true);
-	});
-
-	test('overlay-only settings redraw the basemap, not just clear it, once a title is set', async ({ page }) => {
-		await loadFixtureTrack(page);
-		await expect(page.getByText('Export PNG')).toBeEnabled();
-
-		const canvas = page.locator('.preview-container canvas.map-layer');
-		const titleInput = page.getByLabel('Title');
-		await titleInput.fill('Alpine Loop');
-		await expect.poll(() => cornerPixelIsOpaque(canvas)).toBe(true);
-
-		for (const action of [
-			() => page.getByText('Show stats').click(),
-			() => page.getByText('Scale bar').click(),
-			() => page.getByText('Show data credit').click(),
-			async () => {
-				const citySizeSlider = page.locator('.city-size input[type="range"]');
-				await citySizeSlider.fill('2');
-				await citySizeSlider.dispatchEvent('input');
-			}
-		]) {
-			await action();
-			// Polls rather than reading once: the redraw is deferred two
-			// animation frames, so this also gives the (buggy) cleared-but-
-			// never-repainted bitmap a fair chance to resolve before failing.
-			await expect.poll(() => cornerPixelIsOpaque(canvas)).toBe(true);
-		}
 	});
 
 	test('dragging a track width slider redraws live without refetching tiles', async ({ page }) => {

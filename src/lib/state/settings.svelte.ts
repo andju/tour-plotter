@@ -1,5 +1,6 @@
 import { DEFAULT_LANGUAGE, type LanguageCode } from '../basemap/languages';
 import type { DetailBias } from '../render/detail';
+import type { TitlePosition } from '../render/scene';
 
 class ExportSettingsState {
 	outputWidth = $state(1600);
@@ -24,7 +25,7 @@ class ExportSettingsState {
 	showCredit = $state(true);
 	showScaleBar = $state(true);
 	title = $state('');
-	description = $state('');
+	titlePosition: TitlePosition = $state('top-center');
 	showStats = $state(true);
 
 	readonly maxDimensionPx = 4000;

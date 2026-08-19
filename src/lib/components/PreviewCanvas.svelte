@@ -18,8 +18,8 @@
 	// Debounced: a live drag-resize fires the observer many times per
 	// second, and each tick would otherwise produce a new `backing` -> new
 	// `framing` -> a `loadBasemap` call and a scheduled recompose (see
-	// `framing`/`hasTitle` below) even though only the value the user lands
-	// on matters. The rAF-cancel in the map effect further down coalesces
+	// `framing` below) even though only the value the user lands on
+	// matters. The rAF-cancel in the map effect further down coalesces
 	// the *draw*, but not this framing/fetch churn, hence the separate debounce.
 	const RESIZE_DEBOUNCE_MS = 120;
 
@@ -57,33 +57,18 @@
 		};
 	});
 
-	// Memoised, not read raw off exportSettings inside an effect: a $derived
-	// only notifies dependents when its *value* changes, so `framing` below
-	// sees one invalidation per empty<->non-empty transition instead of one
-	// per keystroke. Reading `exportSettings.title.trim()` directly inside an
-	// effect would defeat that — Svelte tracks the property read, not the
-	// derived outcome.
-	const hasTitle = $derived(exportSettings.title.trim().length > 0);
-	const hasDescription = $derived(exportSettings.description.trim().length > 0);
-
 	// Framing is the dividing line between "needs new basemap data" and
-	// "just needs redrawing". It depends on canvas size, track geometry, the
-	// coverage floor, and title/description *presence* (which reserves top
-	// space in the map's own fit — see computeFraming's doc comment and
-	// buildProjection's `topInsetPx`) — so it, and therefore the fetch effect
-	// below, stays untouched when a purely cosmetic setting (track colour,
-	// stats, scale bar, credit, title/description *text*, detail bias)
-	// changes, but does react to a title/description empty<->non-empty
-	// transition.
+	// "just needs redrawing". It depends only on canvas size, track
+	// geometry and the coverage floor — so it, and therefore the fetch
+	// effect below, stays untouched by every cosmetic setting (track
+	// colour, stats, scale bar, credit, title text/position, detail bias).
 	const framing = $derived(
 		backing.pixelWidth > 0
 			? computeFraming({
 					width: backing.pixelWidth,
 					height: backing.pixelHeight,
 					visibleTracks: trackList.visibleTracks,
-					minCoverageKm: exportSettings.minCoverageKm,
-					hasTitle,
-					hasDescription
+					minCoverageKm: exportSettings.minCoverageKm
 				})
 			: null
 	);
@@ -141,23 +126,19 @@
 	// The 'basemap' and 'overlay' phases as bitmaps, keyed on everything that
 	// affects them (layerCacheKey). Per-track style never appears in that key,
 	// so a slider drag hits this cache on every tick and only the 'tracks'
-	// phase — a few ms — has to be redrawn live. Title/description *text*
-	// don't appear in it either (see layerCache.ts's overlayLayerKey) — the
-	// map effect below always builds its scene with blank title/description,
-	// so a keystroke in either field never busts this cache. Their *presence*
-	// does invalidate it, but only indirectly: a presence transition produces
-	// a new `Framing` (and therefore a new `projection` identity), which
-	// `basemapLayerKey`/`overlayLayerKey` already key on.
+	// phase — a few ms — has to be redrawn live. Title text/position don't
+	// appear in it either (see layerCache.ts's overlayLayerKey) — the map
+	// effect below always builds its scene with a blank title, so a keystroke
+	// in the title field never busts this cache.
 	let cache: CachedLayers | null = null;
 
 	type Loaded = NonNullable<typeof loaded>;
 
 	// Shared by both draw effects below; deliberately a plain function called
 	// inside each effect's own body rather than a $derived — a $derived
-	// object would read title/description itself and re-couple the two
-	// effects' reactivity, which is the exact thing this split exists to
-	// avoid.
-	function sceneOptions(current: Loaded, title: string, description: string): BuildSceneOptions {
+	// object would read title itself and re-couple the two effects'
+	// reactivity, which is the exact thing this split exists to avoid.
+	function sceneOptions(current: Loaded, title: string): BuildSceneOptions {
 		return {
 			framing: current.framing,
 			visibleTracks: trackList.visibleTracks,
@@ -168,20 +149,15 @@
 			showScaleBar: exportSettings.showScaleBar,
 			showStats: exportSettings.showStats,
 			title,
-			description,
+			titlePosition: exportSettings.titlePosition,
 			cityLabelLanguage: exportSettings.cityLabelLanguage,
 			citySize: exportSettings.citySize
 		};
 	}
 
 	// The map: cached 'basemap' + live 'tracks' + cached 'overlay'. Never
-	// reads exportSettings.title or .description — its scene is always built
-	// with blank text, so a keystroke in either field cannot invalidate
-	// anything here. Its `framing` (and therefore its projection, which
-	// already reserves top space for the band once title/description is
-	// non-empty — see computeFraming) comes from `current.framing`, so it
-	// naturally lines up with the text canvas below without any y-offset
-	// compositing trick.
+	// reads exportSettings.title — its scene is always built with a blank
+	// title, so a keystroke in that field cannot invalidate anything here.
 	$effect(() => {
 		if (!canvasEl) return;
 		const current = loaded;
@@ -208,10 +184,10 @@
 		// would be invisible to reactivity. Per-track style fields are only
 		// otherwise dereferenced deep inside composeScenePhase, so clone `style`
 		// to force those reads in here too. buildSceneInput is ~0.1ms, so
-		// running it up front costs nothing. Title/description are
-		// deliberately blank — see this effect's doc comment above.
+		// running it up front costs nothing. Title is deliberately blank —
+		// see this effect's doc comment above.
 		const visibleTracks = trackList.visibleTracks.map((t) => ({ ...t, style: { ...t.style } }));
-		const scene = buildSceneInput({ ...sceneOptions(current, '', ''), visibleTracks });
+		const scene = buildSceneInput({ ...sceneOptions(current, ''), visibleTracks });
 
 		if (cache && cache.basemapKey === basemapLayerKey(scene) && cache.overlayKey === overlayLayerKey(scene)) {
 			// A pure track-style tick: the cached bitmaps are still valid, so
@@ -273,9 +249,9 @@
 		ctx.drawImage(layers.above, 0, 0);
 	}
 
-	// The title/description band: the 'text' phase only, redrawn live on
-	// every keystroke. Unlike the map effect above, this one *does* read
-	// exportSettings.title/.description directly — that's fine here, because
+	// The title pill: the 'text' phase only, redrawn live on every keystroke
+	// (and on every position change). Unlike the map effect above, this one
+	// *does* read exportSettings.title directly — that's fine here, because
 	// the 'text' phase is a couple of fillRect/fillText calls (~1ms), not the
 	// place-projection-and-label-placement work the 'overlay' phase does. No
 	// requestAnimationFrame deferral and no `redrawing` flag: there's nothing
@@ -291,7 +267,7 @@
 			return;
 		}
 
-		const scene = buildSceneInput(sceneOptions(current, exportSettings.title, exportSettings.description));
+		const scene = buildSceneInput(sceneOptions(current, exportSettings.title));
 
 		const width = scene.outputWidth;
 		const height = scene.outputHeight;
@@ -304,13 +280,6 @@
 		if (!ctx) return;
 
 		ctx.clearRect(0, 0, width, height);
-
-		// No band-background fill needed here: the map effect's cached
-		// bitmaps share this same scene's projection (band space already
-		// reserved by computeFraming/buildProjection), so they've already
-		// painted genuine basemap content into the band region. This phase
-		// only draws the title/description pills on top of it — see
-		// composeScenePhase's 'text' phase doc comment in scene.ts.
 		composeScenePhase(new CanvasRenderer(ctx, scene.projection), scene, 'text');
 	});
 

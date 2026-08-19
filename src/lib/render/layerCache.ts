@@ -55,25 +55,18 @@ export function basemapLayerKey(input: SceneInput): string {
  * Identifies everything the 'overlay' phase reads (city labels, scale bar,
  * credit). Kept separate from basemapLayerKey so a city-size or
  * label-language change — both overlay-only — re-renders just this cheap
- * phase instead of the polygon-heavy basemap phase alongside it. Title and
- * description *text* are deliberately absent: they belong to the 'text'
- * phase now, which is never cached (see scene.ts's ScenePhase doc comment
- * and PreviewCanvas.svelte) — including them here would still bust this
- * bitmap on every keystroke even though 'overlay' itself doesn't draw them.
- * `reservedTopPx` is included, though: it changes 'overlay's own city-label
- * culling (see drawPlaces' `mapTop`) on a title/description presence
- * transition, which — unlike the text itself — is a real, if infrequent,
- * input to this phase. In practice a `reservedTopPx` change always comes
- * with a new `Framing` and therefore a new `projection` identity token
- * anyway; this is belt-and-braces for that coupling.
+ * phase instead of the polygon-heavy basemap phase alongside it. Title (text
+ * and position) is deliberately absent: it belongs to the 'text' phase now,
+ * which is never cached (see scene.ts's ScenePhase doc comment and
+ * PreviewCanvas.svelte) — including it here would still bust this bitmap on
+ * every keystroke even though 'overlay' itself doesn't draw it.
  */
 export function overlayLayerKey(input: SceneInput): string {
-	const { outputWidth, outputHeight, marginPx, reservedTopPx, projection, basemap, overlay } = input;
+	const { outputWidth, outputHeight, marginPx, projection, basemap, overlay } = input;
 	return [
 		outputWidth,
 		outputHeight,
 		marginPx,
-		reservedTopPx,
 		identityToken(projection),
 		identityToken(basemap),
 		overlay.cityLabelLanguage,

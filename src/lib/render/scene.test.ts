@@ -141,8 +141,8 @@ const track: Track = {
 
 const overlay: OverlaySettings = {
 	title: 'Test Map',
+	titlePosition: 'top-center',
 	statsText: '10 km',
-	description: 'A test description of the ride.',
 	showAdmin1: true,
 	showCredit: true,
 	showScaleBar: true,
@@ -154,14 +154,13 @@ const overlay: OverlaySettings = {
 // Deterministic stand-in for Canvas-based measurement (unavailable under jsdom).
 const measureTextWidth = (text: string, font: { sizePx: number }) => text.length * font.sizePx * 0.5;
 
-function sceneInputAt(outputWidth: number, outputHeight: number, reservedTopPx = 0): SceneInput {
+function sceneInputAt(outputWidth: number, outputHeight: number): SceneInput {
 	const marginPx = 20 * (outputWidth / 1000);
-	const projection = buildProjection(outputWidth, outputHeight, bbox, marginPx, reservedTopPx);
+	const projection = buildProjection(outputWidth, outputHeight, bbox, marginPx);
 	return {
 		outputWidth,
 		outputHeight,
 		marginPx,
-		reservedTopPx,
 		projection,
 		visibleBbox: visibleBbox(projection, outputWidth, outputHeight),
 		basemap: naturalEarthBasemap(),
@@ -256,12 +255,11 @@ describe('composeScene — layer toggles', () => {
 			outputWidth: 1000,
 			outputHeight: 1000,
 			marginPx: 20,
-			reservedTopPx: 0,
 			projection,
 			visibleBbox: visibleBbox(projection, 1000, 1000),
 			basemap: naturalEarthBasemap(),
 			tracks: [],
-			overlay: { ...overlay, showAdmin1: false, title: null, statsText: null, description: null, showCredit: false, showScaleBar: false },
+			overlay: { ...overlay, showAdmin1: false, title: null, statsText: null, showCredit: false, showScaleBar: false },
 			style,
 			measureTextWidth
 		});
@@ -279,12 +277,11 @@ describe('composeScene — layer toggles', () => {
 			outputWidth: 1000,
 			outputHeight: 1000,
 			marginPx: 20,
-			reservedTopPx: 0,
 			projection,
 			visibleBbox: visibleBbox(projection, 1000, 1000),
 			basemap: naturalEarthBasemap(),
 			tracks: [hidden],
-			overlay: { ...overlay, showAdmin1: false, title: null, statsText: null, description: null, showCredit: false, showScaleBar: false },
+			overlay: { ...overlay, showAdmin1: false, title: null, statsText: null, showCredit: false, showScaleBar: false },
 			style,
 			measureTextWidth
 		});
@@ -299,12 +296,11 @@ describe('composeScene — layer toggles', () => {
 			outputWidth: 1000,
 			outputHeight: 1000,
 			marginPx: 20,
-			reservedTopPx: 0,
 			projection,
 			visibleBbox: visibleBbox(projection, 1000, 1000),
 			basemap: tiledBasemap,
 			tracks: [],
-			overlay: { ...overlay, showAdmin1: false, title: null, statsText: null, description: null, showCredit: false, showScaleBar: false },
+			overlay: { ...overlay, showAdmin1: false, title: null, statsText: null, showCredit: false, showScaleBar: false },
 			style,
 			measureTextWidth
 		});
@@ -344,7 +340,6 @@ describe('composeScene — viewport culling', () => {
 			outputWidth: 1000,
 			outputHeight: 1000,
 			marginPx: 20,
-			reservedTopPx: 0,
 			projection,
 			visibleBbox: visibleBbox(projection, 1000, 1000),
 			basemap: {
@@ -352,7 +347,7 @@ describe('composeScene — viewport culling', () => {
 				urban: { type: 'FeatureCollection', features: [inside, outside] }
 			},
 			tracks: [],
-			overlay: { ...overlay, showAdmin1: false, title: null, statsText: null, description: null, showCredit: false, showScaleBar: false },
+			overlay: { ...overlay, showAdmin1: false, title: null, statsText: null, showCredit: false, showScaleBar: false },
 			style,
 			measureTextWidth
 		});
@@ -369,12 +364,11 @@ describe('composeScene — places', () => {
 			outputWidth: 1000,
 			outputHeight: 1000,
 			marginPx: 20,
-			reservedTopPx: 0,
 			projection,
 			visibleBbox: visibleBbox(projection, 1000, 1000),
 			basemap: basemapWithPlaces(features),
 			tracks: [],
-			overlay: { ...overlay, title: null, statsText: null, description: null, showCredit: false, showScaleBar: false },
+			overlay: { ...overlay, title: null, statsText: null, showCredit: false, showScaleBar: false },
 			style,
 			measureTextWidth
 		});
@@ -399,12 +393,11 @@ describe('composeScene — places', () => {
 			outputWidth: 1000,
 			outputHeight: 1000,
 			marginPx: 20,
-			reservedTopPx: 0,
 			projection,
 			visibleBbox: visibleBbox(projection, 1000, 1000),
 			basemap: basemapWithPlaces([feature('Kept', 0, 5, [13.2, 52.2]), feature('Dropped', 0, 6, [13.3, 52.3])]),
 			tracks: [],
-			overlay: { ...overlay, citySize: 5, title: null, statsText: null, description: null, showCredit: false, showScaleBar: false },
+			overlay: { ...overlay, citySize: 5, title: null, statsText: null, showCredit: false, showScaleBar: false },
 			style,
 			measureTextWidth
 		});
@@ -431,21 +424,6 @@ describe('composeScene — places', () => {
 		expect(Math.max(...fontSizes)).toBeGreaterThan(Math.min(...fontSizes));
 	});
 
-	it('culls a place that falls within the reserved title/description band, even though it is on-canvas', () => {
-		const reservedTopPx = 100;
-		const input = sceneInputAt(1000, 1000, reservedTopPx);
-		// A point that projects into the band itself (y < reservedTopPx) — on
-		// canvas, but exactly the strip a title/description pill sits over.
-		const [lon, lat] = input.projection.invert!([500, reservedTopPx / 2])!;
-		const inBand = basemapWithPlaces([feature('InBand', 0, 0, [lon, lat])]);
-
-		const renderer = new SvgRenderer(1000, 1000, input.projection);
-		composeScenePhase(renderer, { ...input, basemap: inBand }, 'overlay');
-
-		const svg = renderer.serialize();
-		expect(svg).not.toContain('InBand');
-		expect([...svg.matchAll(/<circle/g)]).toHaveLength(0);
-	});
 });
 
 describe('composeScene — phase composition', () => {
@@ -455,18 +433,6 @@ describe('composeScene — phase composition', () => {
 		for (const phase of SCENE_PHASES) composeScenePhase(renderer, input, phase);
 
 		expect(renderer.serialize()).toBe(renderAt(1000, 1000));
-	});
-
-	it("'basemap' phase paints the full canvas, including the reserved title/description band — real basemap, not blank canvas, sits behind the pill", () => {
-		const input = sceneInputAt(1000, 1000, 100);
-		const renderer = new SvgRenderer(1000, 1000, input.projection);
-		composeScenePhase(renderer, input, 'basemap');
-
-		const svg = renderer.serialize();
-		// The background rect (step 1 of the 'basemap' phase) always spans
-		// [0, outputHeight] regardless of reservedTopPx — the band is real,
-		// on-canvas map area, not a separate stretch of blank canvas.
-		expect(svg).toContain(`<rect x="0" y="0" width="1000" height="1000" fill="${style.backgroundFill}" />`);
 	});
 
 	it("'basemap' phase draws the background but no tracks or overlay text", () => {
@@ -493,7 +459,7 @@ describe('composeScene — phase composition', () => {
 		expect(svg).not.toContain('<circle');
 	});
 
-	it("'overlay' phase draws city labels/credit but no basemap fill, tracks, or title/description", () => {
+	it("'overlay' phase draws city labels/credit but no basemap fill, tracks, or title", () => {
 		const input = sceneInputAt(1000, 1000);
 		const renderer = new SvgRenderer(1000, 1000, input.projection);
 		composeScenePhase(renderer, input, 'overlay');
@@ -504,17 +470,15 @@ describe('composeScene — phase composition', () => {
 		expect(svg).not.toContain(`fill="${style.backgroundFill}"`);
 		expect(svg).not.toContain(track.style.color);
 		expect(svg).not.toContain('>Test Map<');
-		expect(svg).not.toContain('>A test description of the ride.<');
 	});
 
-	it("'text' phase draws the title/description bands but no city labels, credit, or tracks", () => {
+	it("'text' phase draws the positioned title pill but no city labels, credit, or tracks", () => {
 		const input = sceneInputAt(1000, 1000);
 		const renderer = new SvgRenderer(1000, 1000, input.projection);
 		composeScenePhase(renderer, input, 'text');
 
 		const svg = renderer.serialize();
 		expect(svg).toContain('>Test Map<');
-		expect(svg).toContain('>A test description of the ride.<');
 		expect(svg).not.toContain('Testville');
 		expect(svg).not.toContain('© Natural Earth');
 		expect(svg).not.toContain('<circle');
@@ -522,43 +486,32 @@ describe('composeScene — phase composition', () => {
 	});
 });
 
-describe('composeScene — title/description backgrounds', () => {
-	it('paints a neutral rect behind the title, sized to the text rather than the full row', () => {
+describe('composeScene — title background', () => {
+	it('paints a neutral rect behind the title, sized to the text rather than the full row, anchored per titlePosition', () => {
 		const svg = renderAt(1000, 1000);
 		// title font-size is 24 at the 1000px reference; box height = 24 * 1.5 = 36.
 		// 'Test Map' is 8 chars, measureTextWidth stub gives 8 * 24 * 0.5 = 96 wide;
 		// + 2 * (24 * 0.5) padding = 120 wide, centred on x=500 -> x=440.
-		expect(svg).toContain(`<rect x="440" y="0" width="120" height="36" fill="${style.textHalo}" />`);
+		// marginPx at 1000 width is 20; 'top-center' anchors the box's vertical
+		// centre at marginPx + boxHeight/2 = 20 + 18 = 38, so the box top is at y=20.
+		expect(svg).toContain(`<rect x="440" y="20" width="120" height="36" fill="${style.textHalo}" />`);
 		expect(svg).toContain('>Test Map<');
 		// Definitely narrower than the full canvas width — the bug this guards against.
 		expect(svg).not.toContain('width="1000" height="36"');
 	});
 
-	it('paints a neutral rect behind the description, sized to the text and stacked directly below the title band', () => {
-		const svg = renderAt(1000, 1000);
-		// title band height = 24 * 1.5 = 36; description font = 24 * 0.66 = 15.84,
-		// so description band height = 15.84 * 1.5 = 23.76, centred at
-		// titleBandPx + descriptionBandPx / 2 -> rect y = titleBandPx = 36.
-		const descriptionRect = svg.match(/<rect x="[\d.]+" y="36" width="[\d.]+" height="23\.7\d*" fill="#ffffff" \/>/);
-		expect(descriptionRect).not.toBeNull();
-		expect(svg).toContain('>A test description of the ride.<');
-		// Definitely narrower than the full canvas width — the bug this guards against.
-		expect(svg).not.toMatch(/width="1000" height="23\.7\d*"/);
-	});
-
-	it('omits both backgrounds when neither title nor description is set', () => {
+	it('omits the background when no title is set', () => {
 		const projection = buildProjection(1000, 1000, bbox, 20);
 		const renderer = new SvgRenderer(1000, 1000, projection);
 		composeScene(renderer, {
 			outputWidth: 1000,
 			outputHeight: 1000,
 			marginPx: 20,
-			reservedTopPx: 0,
 			projection,
 			visibleBbox: visibleBbox(projection, 1000, 1000),
 			basemap: naturalEarthBasemap(),
 			tracks: [track],
-			overlay: { ...overlay, title: null, description: null, showCredit: false, showScaleBar: false, statsText: null },
+			overlay: { ...overlay, title: null, showCredit: false, showScaleBar: false, statsText: null },
 			style,
 			measureTextWidth
 		});
@@ -575,11 +528,9 @@ describe('composeScene — title/description backgrounds', () => {
 		expect(creditText?.[0]).toContain(`stroke="${style.textHalo}"`);
 	});
 
-	it('keeps the title/description text itself free of a per-glyph halo (the background box is the backing)', () => {
+	it('keeps the title text itself free of a per-glyph halo (the background box is the backing)', () => {
 		const svg = renderAt(1000, 1000);
 		const titleText = svg.match(/<text[^>]*>Test Map<\/text>/);
-		const descriptionText = svg.match(/<text[^>]*>A test description of the ride\.<\/text>/);
 		expect(titleText?.[0]).not.toContain('stroke=');
-		expect(descriptionText?.[0]).not.toContain('stroke=');
 	});
 });

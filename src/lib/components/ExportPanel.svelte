@@ -6,7 +6,7 @@
 	import { buildSceneInput, computeFraming } from '$lib/render/buildSceneInput';
 	import { CanvasRenderer } from '$lib/render/canvas';
 	import type { DetailBias } from '$lib/render/detail';
-	import { composeScene } from '$lib/render/scene';
+	import { composeScene, type TitlePosition } from '$lib/render/scene';
 	import { SvgRenderer } from '$lib/render/svg';
 	import { basemapStatus } from '$lib/state/basemapStatus.svelte';
 	import { exportSettings } from '$lib/state/settings.svelte';
@@ -39,9 +39,7 @@
 			width: exportSettings.outputWidth,
 			height: exportSettings.outputHeight,
 			visibleTracks: trackList.visibleTracks,
-			minCoverageKm: exportSettings.minCoverageKm,
-			hasTitle: exportSettings.title.trim().length > 0,
-			hasDescription: exportSettings.description.trim().length > 0
+			minCoverageKm: exportSettings.minCoverageKm
 		});
 		if (!framing) return null;
 
@@ -57,7 +55,7 @@
 			showScaleBar: exportSettings.showScaleBar,
 			showStats: exportSettings.showStats,
 			title: exportSettings.title,
-			description: exportSettings.description,
+			titlePosition: exportSettings.titlePosition,
 			cityLabelLanguage: exportSettings.cityLabelLanguage,
 			citySize: exportSettings.citySize
 		});
@@ -173,12 +171,18 @@
 	</label>
 
 	<label>
-		Description
-		<input
-			type="text"
-			value={exportSettings.description}
-			oninput={(e) => (exportSettings.description = (e.target as HTMLInputElement).value)}
-		/>
+		Title position
+		<select
+			value={exportSettings.titlePosition}
+			onchange={(e) => (exportSettings.titlePosition = (e.target as HTMLSelectElement).value as TitlePosition)}
+		>
+			<option value="top-left">Top left</option>
+			<option value="top-center">Top center</option>
+			<option value="top-right">Top right</option>
+			<option value="bottom-left">Bottom left</option>
+			<option value="bottom-center">Bottom center</option>
+			<option value="bottom-right">Bottom right</option>
+		</select>
 	</label>
 
 	<label>
