@@ -39,13 +39,14 @@ function identityToken(value: object): number {
  * anyway would still bust this cache and pay a full recompose for a no-op.
  */
 export function basemapLayerKey(input: SceneInput): string {
-	const { outputWidth, outputHeight, marginPx, projection, basemap, overlay } = input;
+	const { outputWidth, outputHeight, marginPx, projection, basemap, overlay, style } = input;
 	return [
 		outputWidth,
 		outputHeight,
 		marginPx,
 		identityToken(projection),
 		identityToken(basemap),
+		identityToken(style),
 		overlay.showAdmin1,
 		basemap.hasDetailLevels ? overlay.detailBias : null
 	].join('|');
@@ -62,13 +63,14 @@ export function basemapLayerKey(input: SceneInput): string {
  * every keystroke even though 'overlay' itself doesn't draw it.
  */
 export function overlayLayerKey(input: SceneInput): string {
-	const { outputWidth, outputHeight, marginPx, projection, basemap, overlay } = input;
+	const { outputWidth, outputHeight, marginPx, projection, basemap, overlay, style } = input;
 	return [
 		outputWidth,
 		outputHeight,
 		marginPx,
 		identityToken(projection),
 		identityToken(basemap),
+		identityToken(style),
 		overlay.cityLabelLanguage,
 		overlay.citySize,
 		overlay.showCredit,

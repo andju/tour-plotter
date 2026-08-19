@@ -1,11 +1,13 @@
 import { DEFAULT_LANGUAGE, type LanguageCode } from '../basemap/languages';
 import type { DetailBias } from '../render/detail';
+import { DEFAULT_MAP_STYLE, type MapStyleId } from '../render/palettes';
 import type { TitlePosition } from '../render/scene';
 
 class ExportSettingsState {
 	outputWidth = $state(1600);
 	outputHeight = $state(1200);
 	basemapSource: 'osm' | 'natural-earth' = $state('osm');
+	mapStyle: MapStyleId = $state(DEFAULT_MAP_STYLE);
 	cityLabelLanguage: LanguageCode = $state(DEFAULT_LANGUAGE);
 	/**
 	 * Floor on framed coverage, in km, so small tracks don't zoom to true

@@ -136,6 +136,12 @@ describe('basemapLayerKey', () => {
 		const edited = sceneInput({ ...base, basemap: emptyBasemap() });
 		expect(basemapLayerKey(edited)).not.toBe(basemapLayerKey(base));
 	});
+
+	it('changes for a new style object (e.g. a map style switch)', () => {
+		const base = sceneInput();
+		const edited = sceneInput({ ...base, style: { ...style } });
+		expect(basemapLayerKey(edited)).not.toBe(basemapLayerKey(base));
+	});
 });
 
 describe('overlayLayerKey', () => {
@@ -189,6 +195,12 @@ describe('overlayLayerKey', () => {
 	it('changes for a new basemap object', () => {
 		const base = sceneInput();
 		const edited = sceneInput({ ...base, basemap: emptyBasemap() });
+		expect(overlayLayerKey(edited)).not.toBe(overlayLayerKey(base));
+	});
+
+	it('changes for a new style object (e.g. a map style switch)', () => {
+		const base = sceneInput();
+		const edited = sceneInput({ ...base, style: { ...style } });
 		expect(overlayLayerKey(edited)).not.toBe(overlayLayerKey(base));
 	});
 });

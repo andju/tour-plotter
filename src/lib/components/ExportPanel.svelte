@@ -6,6 +6,7 @@
 	import { buildSceneInput, computeFraming } from '$lib/render/buildSceneInput';
 	import { CanvasRenderer } from '$lib/render/canvas';
 	import type { DetailBias } from '$lib/render/detail';
+	import { MAP_STYLES, type MapStyleId } from '$lib/render/palettes';
 	import { composeScene, type TitlePosition } from '$lib/render/scene';
 	import { SvgRenderer } from '$lib/render/svg';
 	import { basemapStatus } from '$lib/state/basemapStatus.svelte';
@@ -49,6 +50,7 @@
 			framing,
 			visibleTracks: trackList.visibleTracks,
 			basemap,
+			mapStyle: exportSettings.mapStyle,
 			detailBias: exportSettings.detailBias,
 			showAdmin1: exportSettings.showAdmin1,
 			showCredit: exportSettings.showCredit,
@@ -127,6 +129,18 @@
 			</button>
 		</div>
 	</div>
+
+	<label>
+		Map style
+		<select
+			value={exportSettings.mapStyle}
+			onchange={(e) => (exportSettings.mapStyle = (e.target as HTMLSelectElement).value as MapStyleId)}
+		>
+			{#each MAP_STYLES as option (option.id)}
+				<option value={option.id}>{option.label}</option>
+			{/each}
+		</select>
+	</label>
 
 	<div class="row">
 		<label>

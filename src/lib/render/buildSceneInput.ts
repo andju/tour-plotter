@@ -6,8 +6,8 @@ import { combineStats, formatStats } from '../gpx/format';
 import { computeStats } from '../gpx/stats';
 import type { Track } from '../gpx/types';
 import { zoomForProjection, type DetailBias } from './detail';
-import { DEFAULT_SCENE_STYLE } from './defaultStyle';
 import { measureTextWidth } from './measure';
+import { sceneStyleFor, type MapStyleId } from './palettes';
 import type { SceneInput, TitlePosition } from './scene';
 
 /** Margins are defined at this reference width, like everything else in SceneStyle. */
@@ -69,6 +69,7 @@ export interface BuildSceneOptions {
 	framing: Framing;
 	visibleTracks: Track[];
 	basemap: BasemapLayers;
+	mapStyle: MapStyleId;
 	detailBias: DetailBias;
 	showAdmin1: boolean;
 	showCredit: boolean;
@@ -110,7 +111,7 @@ export function buildSceneInput(opts: BuildSceneOptions): SceneInput {
 			cityLabelLanguage: opts.cityLabelLanguage,
 			citySize: opts.citySize
 		},
-		style: DEFAULT_SCENE_STYLE,
+		style: sceneStyleFor(opts.mapStyle),
 		measureTextWidth
 	};
 }

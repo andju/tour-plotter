@@ -143,6 +143,7 @@
 			framing: current.framing,
 			visibleTracks: trackList.visibleTracks,
 			basemap: current.basemap,
+			mapStyle: exportSettings.mapStyle,
 			detailBias: exportSettings.detailBias,
 			showAdmin1: exportSettings.showAdmin1,
 			showCredit: exportSettings.showCredit,
