@@ -31,6 +31,12 @@ function identityToken(value: object): number {
  * fields rather than a blanket `JSON.stringify(input)` — that would pick up
  * per-track style (colour/width/opacity) and miss on every slider tick,
  * defeating the cache entirely.
+ *
+ * `overlay.detailBias` is included only when `basemap.hasDetailLevels` is
+ * true — OSM's decoded tiles carry no `min_zoom` (see `BasemapLayers`' doc
+ * comment), so `visibleAt` treats every OSM feature as always-visible and a
+ * `detailBias` change can't affect what's drawn there at all. Keying on it
+ * anyway would still bust this cache and pay a full recompose for a no-op.
  */
 export function basemapLayerKey(input: SceneInput): string {
 	const { outputWidth, outputHeight, marginPx, projection, basemap, overlay } = input;
@@ -41,7 +47,7 @@ export function basemapLayerKey(input: SceneInput): string {
 		identityToken(projection),
 		identityToken(basemap),
 		overlay.showAdmin1,
-		overlay.detailBias
+		basemap.hasDetailLevels ? overlay.detailBias : null
 	].join('|');
 }
 

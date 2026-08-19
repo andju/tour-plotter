@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BasemapLayers } from '../basemap/types';
 import type { Bbox } from '../geo/bbox';
-import { buildProjection } from '../geo/projection';
+import { buildProjection, visibleBbox } from '../geo/projection';
 import type { Track } from '../gpx/types';
 import { composeScene, composeScenePhase, SCENE_PHASES, type OverlaySettings, type SceneInput, type SceneStyle } from './scene';
 import { SvgRenderer } from './svg';
@@ -116,7 +116,8 @@ function naturalEarthBasemap(): BasemapLayers {
 				}
 			]
 		},
-		attribution: '© Natural Earth'
+		attribution: '© Natural Earth',
+		hasDetailLevels: true
 	};
 }
 
@@ -162,6 +163,7 @@ function sceneInputAt(outputWidth: number, outputHeight: number, reservedTopPx =
 		marginPx,
 		reservedTopPx,
 		projection,
+		visibleBbox: visibleBbox(projection, outputWidth, outputHeight),
 		basemap: naturalEarthBasemap(),
 		tracks: [track],
 		overlay,
@@ -256,6 +258,7 @@ describe('composeScene — layer toggles', () => {
 			marginPx: 20,
 			reservedTopPx: 0,
 			projection,
+			visibleBbox: visibleBbox(projection, 1000, 1000),
 			basemap: naturalEarthBasemap(),
 			tracks: [],
 			overlay: { ...overlay, showAdmin1: false, title: null, statsText: null, description: null, showCredit: false, showScaleBar: false },
@@ -278,6 +281,7 @@ describe('composeScene — layer toggles', () => {
 			marginPx: 20,
 			reservedTopPx: 0,
 			projection,
+			visibleBbox: visibleBbox(projection, 1000, 1000),
 			basemap: naturalEarthBasemap(),
 			tracks: [hidden],
 			overlay: { ...overlay, showAdmin1: false, title: null, statsText: null, description: null, showCredit: false, showScaleBar: false },
@@ -297,6 +301,7 @@ describe('composeScene — layer toggles', () => {
 			marginPx: 20,
 			reservedTopPx: 0,
 			projection,
+			visibleBbox: visibleBbox(projection, 1000, 1000),
 			basemap: tiledBasemap,
 			tracks: [],
 			overlay: { ...overlay, showAdmin1: false, title: null, statsText: null, description: null, showCredit: false, showScaleBar: false },
@@ -306,6 +311,53 @@ describe('composeScene — layer toggles', () => {
 		// Only the waterway line and admin0 border should carry a stroke —
 		// the water polygon must be fill-only.
 		expect(pathStrokeWidths(renderer.serialize())).toHaveLength(2);
+	});
+});
+
+describe('composeScene — viewport culling', () => {
+	function urbanFeature(coordinates: [number, number][]): GeoJSON.Feature {
+		return {
+			type: 'Feature',
+			properties: {},
+			geometry: { type: 'Polygon', coordinates: [[...coordinates, coordinates[0]]] }
+		};
+	}
+
+	it('draws a feature inside the visible extent and drops one entirely outside it', () => {
+		const projection = buildProjection(1000, 1000, bbox, 20);
+		const renderer = new SvgRenderer(1000, 1000, projection);
+		const inside = urbanFeature([
+			[13.2, 52.2],
+			[13.25, 52.2],
+			[13.25, 52.25],
+			[13.2, 52.25]
+		]);
+		// Far from `bbox` ([13.0, 52.0, 13.5, 52.5]) on both axes — nowhere
+		// near the framing's visible extent even with margin slack.
+		const outside = urbanFeature([
+			[100, 0],
+			[101, 0],
+			[101, 1],
+			[100, 1]
+		]);
+		composeScene(renderer, {
+			outputWidth: 1000,
+			outputHeight: 1000,
+			marginPx: 20,
+			reservedTopPx: 0,
+			projection,
+			visibleBbox: visibleBbox(projection, 1000, 1000),
+			basemap: {
+				...naturalEarthBasemap(),
+				urban: { type: 'FeatureCollection', features: [inside, outside] }
+			},
+			tracks: [],
+			overlay: { ...overlay, showAdmin1: false, title: null, statsText: null, description: null, showCredit: false, showScaleBar: false },
+			style,
+			measureTextWidth
+		});
+		const urbanPaths = [...renderer.serialize().matchAll(new RegExp(`fill="${style.urbanFill}"`, 'g'))];
+		expect(urbanPaths).toHaveLength(1);
 	});
 });
 
@@ -319,6 +371,7 @@ describe('composeScene — places', () => {
 			marginPx: 20,
 			reservedTopPx: 0,
 			projection,
+			visibleBbox: visibleBbox(projection, 1000, 1000),
 			basemap: basemapWithPlaces(features),
 			tracks: [],
 			overlay: { ...overlay, title: null, statsText: null, description: null, showCredit: false, showScaleBar: false },
@@ -348,6 +401,7 @@ describe('composeScene — places', () => {
 			marginPx: 20,
 			reservedTopPx: 0,
 			projection,
+			visibleBbox: visibleBbox(projection, 1000, 1000),
 			basemap: basemapWithPlaces([feature('Kept', 0, 5, [13.2, 52.2]), feature('Dropped', 0, 6, [13.3, 52.3])]),
 			tracks: [],
 			overlay: { ...overlay, citySize: 5, title: null, statsText: null, description: null, showCredit: false, showScaleBar: false },
@@ -501,6 +555,7 @@ describe('composeScene — title/description backgrounds', () => {
 			marginPx: 20,
 			reservedTopPx: 0,
 			projection,
+			visibleBbox: visibleBbox(projection, 1000, 1000),
 			basemap: naturalEarthBasemap(),
 			tracks: [track],
 			overlay: { ...overlay, title: null, description: null, showCredit: false, showScaleBar: false, statsText: null },

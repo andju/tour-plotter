@@ -16,7 +16,8 @@ function emptyBasemap(): BasemapLayers {
 		admin0: { type: 'FeatureCollection', features: [] },
 		admin1: { type: 'FeatureCollection', features: [] },
 		places: { type: 'FeatureCollection', features: [] },
-		attribution: '© Natural Earth'
+		attribution: '© Natural Earth',
+		hasDetailLevels: true
 	};
 }
 

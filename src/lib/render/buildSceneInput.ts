@@ -130,6 +130,7 @@ export function buildSceneInput(opts: BuildSceneOptions): SceneInput {
 		marginPx: opts.framing.marginPx,
 		reservedTopPx: opts.framing.reservedTopPx,
 		projection: opts.framing.projection,
+		visibleBbox: opts.framing.visibleBbox,
 		basemap: opts.basemap,
 		tracks: opts.visibleTracks,
 		overlay: {

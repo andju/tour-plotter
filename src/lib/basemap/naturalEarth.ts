@@ -98,6 +98,7 @@ export async function loadNaturalEarth(fetchFn: typeof fetch = fetch): Promise<B
 		admin0,
 		admin1,
 		places,
-		attribution: '© Natural Earth'
+		attribution: '© Natural Earth',
+		hasDetailLevels: true
 	};
 }

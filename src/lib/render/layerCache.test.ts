@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BasemapLayers } from '../basemap/types';
-import { buildProjection } from '../geo/projection';
+import { buildProjection, visibleBbox } from '../geo/projection';
 import { basemapLayerKey, overlayLayerKey } from './layerCache';
 import type { OverlaySettings, SceneInput, SceneStyle } from './scene';
 
@@ -39,7 +39,8 @@ function emptyBasemap(): BasemapLayers {
 		admin0: { type: 'FeatureCollection', features: [] },
 		admin1: { type: 'FeatureCollection', features: [] },
 		places: { type: 'FeatureCollection', features: [] },
-		attribution: '© Natural Earth'
+		attribution: '© Natural Earth',
+		hasDetailLevels: true
 	};
 }
 
@@ -65,6 +66,7 @@ function sceneInput(overrides: Partial<SceneInput> = {}): SceneInput {
 		marginPx: 20,
 		reservedTopPx: 0,
 		projection,
+		visibleBbox: visibleBbox(projection, 1000, 1000),
 		basemap: emptyBasemap(),
 		tracks: [
 			{
@@ -103,6 +105,16 @@ describe('basemapLayerKey', () => {
 		const base = sceneInput();
 		const edited = sceneInput({ ...base, overlay: { ...overlay, detailBias: 'minimal' } });
 		expect(basemapLayerKey(edited)).not.toBe(basemapLayerKey(base));
+	});
+
+	it('is unaffected by detailBias when the source has no detail levels', () => {
+		const noDetailBasemap = { ...emptyBasemap(), hasDetailLevels: false };
+		const base = sceneInput({ basemap: noDetailBasemap });
+		const edited = sceneInput({
+			...base,
+			overlay: { ...overlay, detailBias: 'minimal' }
+		});
+		expect(basemapLayerKey(edited)).toBe(basemapLayerKey(base));
 	});
 
 	it('is unaffected by citySize, cityLabelLanguage, title or statsText', () => {

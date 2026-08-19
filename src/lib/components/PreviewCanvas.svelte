@@ -15,12 +15,26 @@
 	let containerEl: HTMLDivElement;
 	let containerWidth = $state(600);
 
+	// Debounced: a live drag-resize fires the observer many times per
+	// second, and each tick would otherwise produce a new `backing` -> new
+	// `framing` -> a `loadBasemap` call and a scheduled recompose (see
+	// `framing`/`hasTitle` below) even though only the value the user lands
+	// on matters. The rAF-cancel in the map effect further down coalesces
+	// the *draw*, but not this framing/fetch churn, hence the separate debounce.
+	const RESIZE_DEBOUNCE_MS = 120;
+
 	onMount(() => {
+		let timeout: ReturnType<typeof setTimeout> | undefined;
 		const ro = new ResizeObserver((entries) => {
-			containerWidth = entries[0].contentRect.width;
+			const width = entries[0].contentRect.width;
+			clearTimeout(timeout);
+			timeout = setTimeout(() => (containerWidth = width), RESIZE_DEBOUNCE_MS);
 		});
 		ro.observe(containerEl);
-		return () => ro.disconnect();
+		return () => {
+			clearTimeout(timeout);
+			ro.disconnect();
+		};
 	});
 
 	interface Backing {

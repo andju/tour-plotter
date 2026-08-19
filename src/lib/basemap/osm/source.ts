@@ -130,7 +130,10 @@ export async function loadOsmTiles(bbox: Bbox, zoom: number, fetchFn: typeof fet
 		admin0: toCollection(decoded.flatMap((d) => d.admin0)),
 		admin1: toCollection(decoded.flatMap((d) => d.admin1)),
 		places: dedupePlaces(decoded.flatMap((d) => d.places)),
-		attribution: ATTRIBUTION
+		attribution: ATTRIBUTION,
+		// decode.ts never emits min_zoom on OSM features (see BasemapLayers'
+		// doc comment), so the Detail control is currently a no-op here.
+		hasDetailLevels: false
 	};
 
 	put(coverCache, coverKey, layers, MAX_CACHED_COVERS);

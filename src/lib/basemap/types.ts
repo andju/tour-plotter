@@ -37,4 +37,15 @@ export interface BasemapLayers {
 	places: GeoJSON.FeatureCollection<GeoJSON.Point, PlaceProperties>;
 	/** Attribution string to render as the map credit; source-dependent. */
 	attribution: string;
+	/**
+	 * Whether any feature in this source carries a `min_zoom` property (see
+	 * detail.ts's `visibleAt`) — i.e. whether the Detail control's
+	 * `detailBias` can change what's drawn at all. Natural Earth's
+	 * rivers/lakes/urban layers do; OSM's decoded tiles currently don't
+	 * (see osm/decode.ts). Read by layerCache.ts's `basemapLayerKey` so a
+	 * source with no detail levels doesn't bust the cache — and therefore
+	 * pay a full basemap recompose — on a `detailBias` change that would
+	 * draw exactly the same thing.
+	 */
+	hasDetailLevels: boolean;
 }

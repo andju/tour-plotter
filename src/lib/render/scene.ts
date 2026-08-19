@@ -1,6 +1,8 @@
 import type { GeoProjection } from 'd3-geo';
 import { CITY_SIZE_MAX } from '../basemap/placeSize';
 import type { BasemapLayers, PlaceProperties } from '../basemap/types';
+import { bboxIntersects, featureBbox } from './cull';
+import type { Bbox } from '../geo/bbox';
 import { trackToGeoJSON, type Track } from '../gpx/types';
 import { visibleAt, zoomForProjection, type DetailBias } from './detail';
 import { placeLabels, type LabelCandidate } from './labels';
@@ -123,6 +125,14 @@ export interface SceneInput {
 	 */
 	reservedTopPx: number;
 	projection: GeoProjection;
+	/**
+	 * The full geographic extent visible on the canvas (see `Framing.visibleBbox`
+	 * in buildSceneInput.ts) — used to viewport-cull basemap features before
+	 * they reach `geoPath`, since none of the basemap sources filter by
+	 * bbox themselves (Natural Earth ships the whole planet; an OSM tile
+	 * cover is fetched by bbox but still has slack past its edges).
+	 */
+	visibleBbox: Bbox;
 	basemap: BasemapLayers;
 	/** Already filtered to the visible subset by the caller. */
 	tracks: Track[];
@@ -159,7 +169,7 @@ export function composeScene(renderer: Renderer, input: SceneInput): void {
 
 /** Draws one phase of `composeScene`. See `ScenePhase`. */
 export function composeScenePhase(renderer: Renderer, input: SceneInput, phase: ScenePhase): void {
-	const { outputWidth, projection, basemap, tracks, overlay, style } = input;
+	const { outputWidth, projection, basemap, tracks, overlay, style, visibleBbox } = input;
 	const scale = outputWidth / 1000;
 	const zoom = zoomForProjection(projection);
 	const bias = overlay.detailBias;
@@ -171,22 +181,30 @@ export function composeScenePhase(renderer: Renderer, input: SceneInput, phase: 
 		// starts as water and land is painted on top at step 2.
 		renderer.rect(0, 0, input.outputWidth, input.outputHeight, { fill: backgroundFillFor(basemap, style) });
 
+		// Natural Earth ships the whole planet with no bbox split, and none
+		// of the basemap sources filter by viewport themselves (an OSM tile
+		// cover is fetched by bbox but still has slack past its edges), so
+		// every layer is viewport-culled here before it reaches geoPath.
+		// Land is filtered once and reused for both the fill (step 2) and
+		// the coastline stroke (step 7) below, rather than twice.
+		const land = basemap.land ? visibleFeatures(basemap.land, zoom, bias, visibleBbox) : null;
+
 		// 2. Land (Natural Earth only), fill only — the coastline is stroked
 		// separately at step 7, after water, so it reads as a crisp line on top
 		// rather than blending into the fill's own edge.
-		if (basemap.land) {
-			for (const feature of basemap.land.features) {
+		if (land) {
+			for (const feature of land) {
 				renderer.path(feature.geometry, { fill: style.landFill });
 			}
 		}
 
 		// 3. Urban / landcover fills.
-		for (const feature of filterByZoom(basemap.urban, zoom, bias)) {
+		for (const feature of visibleFeatures(basemap.urban, zoom, bias, visibleBbox)) {
 			renderer.path(feature.geometry, { fill: style.urbanFill });
 		}
 
 		// 4. Parks.
-		for (const feature of filterByZoom(basemap.parks, zoom, bias)) {
+		for (const feature of visibleFeatures(basemap.parks, zoom, bias, visibleBbox)) {
 			renderer.path(feature.geometry, { fill: style.parkFill });
 		}
 
@@ -198,7 +216,7 @@ export function composeScenePhase(renderer: Renderer, input: SceneInput, phase: 
 			waterStyle.stroke = style.waterStroke;
 			waterStyle.strokeWidthPx = style.referenceStrokeWidthPx.water * scale;
 		}
-		for (const feature of filterByZoom(basemap.water, zoom, bias)) {
+		for (const feature of visibleFeatures(basemap.water, zoom, bias, visibleBbox)) {
 			renderer.path(feature.geometry, waterStyle);
 		}
 
@@ -209,18 +227,18 @@ export function composeScenePhase(renderer: Renderer, input: SceneInput, phase: 
 			stroke: style.waterwayStroke,
 			strokeWidthPx: style.referenceStrokeWidthPx.waterway * scale
 		};
-		for (const feature of filterByZoom(basemap.waterways, zoom, bias)) {
+		for (const feature of visibleFeatures(basemap.waterways, zoom, bias, visibleBbox)) {
 			renderer.path(feature.geometry, waterwayStyle);
 		}
 
 		// 7. Coastline (Natural Earth only) — land's own outline, stroked now
 		// that water has been painted, so it reads as a crisp line on top.
-		if (basemap.land) {
+		if (land) {
 			const coastlineStyle: PathStyle = {
 				stroke: style.coastlineStroke,
 				strokeWidthPx: style.referenceStrokeWidthPx.coastline * scale
 			};
-			for (const feature of basemap.land.features) {
+			for (const feature of land) {
 				renderer.path(feature.geometry, coastlineStyle);
 			}
 		}
@@ -232,7 +250,9 @@ export function composeScenePhase(renderer: Renderer, input: SceneInput, phase: 
 				strokeWidthPx: style.referenceStrokeWidthPx.admin1 * scale,
 				dashPx: [2 * scale, 3 * scale]
 			};
-			for (const feature of basemap.admin1.features) renderer.path(feature.geometry, admin1Style);
+			for (const feature of visibleFeatures(basemap.admin1, zoom, bias, visibleBbox)) {
+				renderer.path(feature.geometry, admin1Style);
+			}
 		}
 
 		const admin0Style: PathStyle = {
@@ -240,7 +260,9 @@ export function composeScenePhase(renderer: Renderer, input: SceneInput, phase: 
 			strokeWidthPx: style.referenceStrokeWidthPx.admin0 * scale,
 			dashPx: [4 * scale, 3 * scale]
 		};
-		for (const feature of basemap.admin0.features) renderer.path(feature.geometry, admin0Style);
+		for (const feature of visibleFeatures(basemap.admin0, zoom, bias, visibleBbox)) {
+			renderer.path(feature.geometry, admin0Style);
+		}
 		return;
 	}
 
@@ -319,9 +341,24 @@ export function backgroundFillFor(basemap: BasemapLayers, style: SceneStyle): st
 	return basemap.baseFill === 'land' ? style.landFill : style.backgroundFill;
 }
 
-/** Keeps features whose min_zoom (if any) has been reached at this framing's zoom. */
-function filterByZoom(fc: GeoJSON.FeatureCollection, zoom: number, bias: DetailBias): GeoJSON.Feature[] {
-	return fc.features.filter((f) => visibleAt(f.properties?.min_zoom as number | undefined, zoom, bias));
+/**
+ * Keeps features whose min_zoom (if any) has been reached at this framing's
+ * zoom, and whose own bbox overlaps the framing's visible extent. The bbox
+ * test is what keeps a full-planet Natural Earth layer, or an OSM tile
+ * cover's slack past its requested bbox, from being handed to geoPath in
+ * full on every render — see cull.ts's featureBbox/bboxIntersects.
+ */
+function visibleFeatures(
+	fc: GeoJSON.FeatureCollection,
+	zoom: number,
+	bias: DetailBias,
+	visibleBbox: Bbox
+): GeoJSON.Feature[] {
+	return fc.features.filter(
+		(f) =>
+			visibleAt(f.properties?.min_zoom as number | undefined, zoom, bias) &&
+			bboxIntersects(featureBbox(f), visibleBbox)
+	);
 }
 
 /** Linear interpolation across a place's size, 0 (largest) to CITY_SIZE_MAX (smallest). */
