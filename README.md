@@ -7,6 +7,42 @@ a bounding box from the loaded tracks (expanded to a minimum coverage floor so
 small tracks don't zoom to street level) and fits a projection to it. There is
 no manual pan/zoom step.
 
+## Installation
+
+Make sure the following prerequisites are installed:
+
+- [Git](https://git-scm.com/)
+- [Node.js](https://nodejs.org/) 24+ (with npm)
+
+### Setup
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/andju/tour-plotter.git
+   cd tour-plotter
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm ci
+   ```
+
+### Run the development server
+
+Exectue:
+
+```bash
+npm run dev
+```
+
+The app will be available at [http://localhost:5173](http://localhost:5173).
+   
+
+### Build and Export
+
+- **Production build:** `npm run build` → outputs to `build/`
+- **Preview production build locally:** `npm run preview`
+
 ## Tech Stack
 
 SvelteKit (Svelte 5, runes mode) + TypeScript, `adapter-static`, client-only
