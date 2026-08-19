@@ -59,8 +59,10 @@
 						/>
 						Visible
 					</label>
-					<button onclick={() => trackList.moveUp(track.id)} aria-label="Move up">↑</button>
-					<button onclick={() => trackList.moveDown(track.id)} aria-label="Move down">↓</button>
+					<div class="reorder">
+						<button onclick={() => trackList.moveUp(track.id)} aria-label="Move up">↑</button>
+						<button onclick={() => trackList.moveDown(track.id)} aria-label="Move down">↓</button>
+					</div>
 				</div>
 			</li>
 		{/each}
@@ -127,6 +129,10 @@
 		text-align: right;
 		font-size: 0.85rem;
 		color: #555;
+	}
+	.reorder {
+		display: flex;
+		gap: 0.15rem;
 	}
 	.actions .visible {
 		display: flex;
