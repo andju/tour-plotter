@@ -67,9 +67,32 @@ export function titleBandHeightPx(style: SceneStyle): number {
 	return style.referenceFontSizePx.title * TEXT_BAND_LINE_HEIGHT;
 }
 
+/** Description text renders at two thirds the title's font size. */
+export function descriptionFontSizePx(style: SceneStyle): number {
+	return style.referenceFontSizePx.title * 0.66;
+}
+
 /** Height (at the 1000px reference width) of the band reserved for the description, directly below the title band (or at the top of the canvas if there's no title). */
 export function descriptionBandHeightPx(style: SceneStyle): number {
-	return style.referenceFontSizePx.stats * TEXT_BAND_LINE_HEIGHT;
+	return descriptionFontSizePx(style) * TEXT_BAND_LINE_HEIGHT;
+}
+
+/**
+ * Combined title+description band height in output pixels, at `scale`. Feeds
+ * `Framing.reservedTopPx` (buildSceneInput.ts's `computeFraming`), which the
+ * projection fit treats as unavailable space at the top of the canvas — the
+ * canvas itself never grows or shrinks off this value, so unlike its former
+ * use as a canvas-sizing amount, there's no need to round it to an integer
+ * here.
+ */
+export function reservedBandPx(
+	overlay: Pick<OverlaySettings, 'title' | 'description'>,
+	style: SceneStyle,
+	scale: number
+): number {
+	const titleBandPx = overlay.title ? titleBandHeightPx(style) * scale : 0;
+	const descriptionBandPx = overlay.description ? descriptionBandHeightPx(style) * scale : 0;
+	return titleBandPx + descriptionBandPx;
 }
 
 export interface OverlaySettings {
@@ -90,6 +113,15 @@ export interface SceneInput {
 	outputWidth: number;
 	outputHeight: number;
 	marginPx: number;
+	/**
+	 * Space reserved above the map for the title/description bands — the
+	 * projection's own fit already treats this as unavailable (see
+	 * `buildProjection`'s `topInsetPx`), so this is the authoritative
+	 * `mapTop` used for city-label culling and the 'overlay'/'text' phase
+	 * split below, rather than recomputing it from `overlay.title` /
+	 * `overlay.description` truthiness.
+	 */
+	reservedTopPx: number;
 	projection: GeoProjection;
 	basemap: BasemapLayers;
 	/** Already filtered to the visible subset by the caller. */
@@ -100,13 +132,17 @@ export interface SceneInput {
 }
 
 /**
- * The three ordered groups `composeScene` draws in. Split out so the preview
+ * The four ordered groups `composeScene` draws in. Split out so the preview
  * can cache the two phases a per-track style edit (colour/width/opacity)
  * never touches — `basemap` and `overlay` — as bitmaps, and re-run only
- * `tracks` on a slider tick. See `layerCache.ts`.
+ * `tracks` on a slider tick. See `layerCache.ts`. `text` (title/description)
+ * is split out from `overlay` for the same reason but goes further: the
+ * preview draws it on its own stacked canvas, live, on every keystroke,
+ * because unlike `overlay` (city label placement — expensive) it's cheap
+ * enough not to need caching at all. See PreviewCanvas.svelte.
  */
-export type ScenePhase = 'basemap' | 'tracks' | 'overlay';
-export const SCENE_PHASES: readonly ScenePhase[] = ['basemap', 'tracks', 'overlay'];
+export type ScenePhase = 'basemap' | 'tracks' | 'overlay' | 'text';
+export const SCENE_PHASES: readonly ScenePhase[] = ['basemap', 'tracks', 'overlay', 'text'];
 
 /**
  * Draws the full scene into `renderer`. Deliberately takes the Renderer
@@ -133,8 +169,7 @@ export function composeScenePhase(renderer: Renderer, input: SceneInput, phase: 
 		// `water` feature), so the page itself starts as land; Natural Earth
 		// carries an explicit land polygon over an implicit ocean, so the page
 		// starts as water and land is painted on top at step 2.
-		const backgroundFill = basemap.baseFill === 'land' ? style.landFill : style.backgroundFill;
-		renderer.rect(0, 0, input.outputWidth, input.outputHeight, { fill: backgroundFill });
+		renderer.rect(0, 0, input.outputWidth, input.outputHeight, { fill: backgroundFillFor(basemap, style) });
 
 		// 2. Land (Natural Earth only), fill only — the coastline is stroked
 		// separately at step 7, after water, so it reads as a crisp line on top
@@ -231,26 +266,57 @@ export function composeScenePhase(renderer: Renderer, input: SceneInput, phase: 
 		return;
 	}
 
-	// overlay. mapTop bounds the map's own drawable area within the canvas —
-	// narrower than [0, outputHeight] only at the top, when a title band
-	// and/or a description band is reserved above it (see buildSceneInput.ts,
-	// which grows outputHeight and shifts `projection` down by the same
-	// amount so the two stay in lockstep). The description band sits
-	// directly below the title band (or at the very top if there's no
-	// title), so it's guaranteed never to overlap the track. Nothing is
-	// reserved below the map: stats, scale bar and credit draw directly over
-	// the map's own bottom margin, each with its own neutral background
-	// sized to its text.
+	// overlay/text. mapTop bounds the map's own drawable area within the
+	// canvas — narrower than [0, outputHeight] only at the top, when a title
+	// band and/or a description band is reserved above it. Unlike the map's
+	// own fit (input.projection, whose scale/translate already treat
+	// reservedTopPx as unavailable — see buildProjection's topInsetPx), the
+	// canvas itself is never grown or shifted: the band is real, on-canvas
+	// map area that the 'basemap' phase paints into like anywhere else, and
+	// mapTop here exists only to keep city dots/labels from being placed
+	// over the title/description pills. The description band sits directly
+	// below the title band (or at the very top if there's no title), so
+	// it's guaranteed never to overlap the track. Nothing is reserved below
+	// the map: stats, scale bar and credit draw directly over the map's own
+	// bottom margin, each with its own neutral background sized to its text.
 	const titleBandPx = overlay.title ? titleBandHeightPx(style) * scale : 0;
 	const descriptionBandPx = overlay.description ? descriptionBandHeightPx(style) * scale : 0;
-	const mapTop = titleBandPx + descriptionBandPx;
+
+	if (phase === 'text') {
+		// Draws only the title/description pills (see drawLabelWithBackground)
+		// — no full-width band fill here. This phase always runs against the
+		// same scene as 'basemap' (preview and export alike now — neither
+		// composites the map at an offset any more), which has already
+		// painted whatever land/water/coastline genuinely projects into the
+		// band region; a full-width rect here would paint flat over that real
+		// geography instead of leaving it visible around the pill, which is
+		// exactly the "doesn't read as a strip painted across the whole
+		// image" property drawLabelWithBackground documents.
+		drawTitleBand(renderer, input, scale, titleBandPx);
+		drawDescriptionBand(renderer, input, scale, titleBandPx, descriptionBandPx);
+		return;
+	}
+
+	// overlay. reservedTopPx is already in output-pixel space (it went
+	// through reservedBandPx with this same outputWidth/1000 scale when the
+	// Framing was computed), unlike titleBandPx/descriptionBandPx above
+	// which take the 1000px-reference values and scale them here.
+	const mapTop = input.reservedTopPx;
 	const mapBottom = input.outputHeight;
 
 	drawPlaces(renderer, input, scale, mapTop, mapBottom);
 	drawBottomLeft(renderer, input, scale, mapBottom);
 	drawCredit(renderer, input, scale, mapBottom);
-	drawTitleBand(renderer, input, scale, titleBandPx);
-	drawDescriptionBand(renderer, input, scale, titleBandPx, descriptionBandPx);
+}
+
+/**
+ * The 'basemap' phase's own background fill decision, exported so
+ * PreviewCanvas.svelte's preview-only band-background compensation (see the
+ * 'text' phase's doc comment above) paints the exact same colour rather than
+ * restating the land/water choice.
+ */
+export function backgroundFillFor(basemap: BasemapLayers, style: SceneStyle): string {
+	return basemap.baseFill === 'land' ? style.landFill : style.backgroundFill;
 }
 
 /** Keeps features whose min_zoom (if any) has been reached at this framing's zoom. */
@@ -322,6 +388,9 @@ function drawPlaces(
 	}
 }
 
+/** Extra breathing room (at the 1000px reference width) between the stats text and the scale bar's label, above the spacing already implied by their font sizes. */
+const BOTTOM_LEFT_STACK_GAP_PX = 6;
+
 /**
  * Stacks the scale bar (bottom) and stats text (above it) in the bottom-left
  * corner of the map, bottom-up, so the two never collide — both would
@@ -345,7 +414,7 @@ function drawBottomLeft(renderer: Renderer, input: SceneInput, scale: number, ma
 				haloColor: style.textHalo,
 				haloWidthPx: font.sizePx * 0.15
 			});
-			y -= barHeightPx + font.sizePx * 1.6;
+			y -= barHeightPx + font.sizePx * 1.6 + BOTTOM_LEFT_STACK_GAP_PX * scale;
 		}
 	}
 
@@ -411,11 +480,13 @@ function drawLabelWithBackground(
 }
 
 /**
- * The title lives in its own band above the map — `buildSceneInput.ts`
- * grows `outputHeight` by exactly `titleBandPx` and shifts `projection`
- * down by the same amount, so this band is genuinely empty map-wise. Its
- * background box (see `drawLabelWithBackground`) exactly fills that band's
- * height, since both are derived from the same `TEXT_BAND_LINE_HEIGHT`.
+ * The title lives in its own band above the map — real basemap area (the
+ * projection's fit already treats it as unavailable for framing purposes,
+ * see `buildProjection`'s `topInsetPx`), not a separate stretch of blank
+ * canvas, so the pill sits over genuine land/water/coastline rather than a
+ * flat fill. Its background box (see `drawLabelWithBackground`) exactly
+ * fills that band's height, since both are derived from the same
+ * `TEXT_BAND_LINE_HEIGHT`.
  */
 function drawTitleBand(renderer: Renderer, input: SceneInput, scale: number, titleBandPx: number): void {
 	const { overlay, style, outputWidth } = input;
@@ -427,11 +498,11 @@ function drawTitleBand(renderer: Renderer, input: SceneInput, scale: number, tit
 
 /**
  * The description lives in its own band directly below the title band (or
- * at the very top of the canvas if there's no title) — `buildSceneInput.ts`
- * grows `outputHeight` by exactly `descriptionBandPx`, on top of any title
- * band, and shifts `projection` down by the combined amount, so this band
- * is genuinely empty map-wise and the description can never overlap the
- * track.
+ * at the very top of the canvas if there's no title). Like the title band,
+ * this is real basemap area the projection's fit reserves via
+ * `reservedTopPx`/`topInsetPx` rather than blank canvas — the fit keeps
+ * both bands' combined height out of the map's own framing, so the
+ * description can never overlap the track.
  */
 function drawDescriptionBand(
 	renderer: Renderer,
@@ -443,7 +514,7 @@ function drawDescriptionBand(
 	const { overlay, style, outputWidth } = input;
 	if (!overlay.description || descriptionBandPx <= 0) return;
 
-	const font: Font = { sizePx: style.referenceFontSizePx.stats * scale, family: style.fontFamily };
+	const font: Font = { sizePx: descriptionFontSizePx(style) * scale, family: style.fontFamily };
 	drawLabelWithBackground(
 		renderer,
 		input,

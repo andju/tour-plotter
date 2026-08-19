@@ -28,14 +28,18 @@ function pngDimensions(buffer: Buffer): { width: number; height: number } {
 
 /**
  * The basemap's 'basemap' phase always starts with an opaque background
- * rect (land or water fill — see composeScenePhase in scene.ts), so a
- * corner pixel's alpha is a reliable proxy for "the basemap bitmap was
- * actually painted" vs. left cleared/transparent by a caching bug.
+ * rect spanning the entire canvas (land or water fill — see
+ * composeScenePhase in scene.ts), including any reserved title/description
+ * band (the band is real map area now, not a separate blank strip — see
+ * buildProjection's `topInsetPx`), so a pixel sampled anywhere on the map
+ * layer is a reliable proxy for "the basemap bitmap was actually painted"
+ * vs. left cleared/transparent by a caching bug. Sampled at the vertical
+ * midpoint, to the left of any city label/credit/scale-bar text.
  */
 async function cornerPixelIsOpaque(canvas: import('@playwright/test').Locator): Promise<boolean> {
 	return canvas.evaluate((el: HTMLCanvasElement) => {
 		const ctx = el.getContext('2d')!;
-		const { data } = ctx.getImageData(2, 2, 1, 1);
+		const { data } = ctx.getImageData(2, Math.floor(el.height / 2), 1, 1);
 		return data[3] === 255;
 	});
 }
@@ -89,6 +93,28 @@ test.describe('GPX export', () => {
 		expect(svg).toContain('width="1200"');
 		expect(svg).toContain('height="800"');
 		expect(svg.startsWith('<svg')).toBe(true);
+	});
+
+	test('a title or description never changes the exported PNG dimensions', async ({ page }) => {
+		await loadFixtureTrack(page);
+		await setDimensions(page, 1000, 1000);
+
+		const baselineDownload = page.waitForEvent('download');
+		await page.getByText('Export PNG').click();
+		const baselineDimensions = pngDimensions(readFileSync(await (await baselineDownload).path()));
+		expect(baselineDimensions).toEqual({ width: 1000, height: 1000 });
+
+		await page.getByLabel('Title').fill('Alpine Loop');
+		await page.getByLabel('Description').fill('A weekend ride through the Alps.');
+
+		// The title/description band is reserved *inside* the requested
+		// dimensions (the map's own fit shrinks slightly to make room — see
+		// buildProjection's `topInsetPx`), not by growing the canvas, so the
+		// export must come back at exactly the size the user asked for.
+		const titledDownload = page.waitForEvent('download');
+		await page.getByText('Export PNG').click();
+		const titledDimensions = pngDimensions(readFileSync(await (await titledDownload).path()));
+		expect(titledDimensions).toEqual({ width: 1000, height: 1000 });
 	});
 
 	test('exporting twice in one session does not error', async ({ page }) => {
@@ -169,7 +195,7 @@ test.describe('preview redraws', () => {
 			if (req.url().includes('tiles.openfreemap.org')) tileRequests++;
 		});
 
-		const canvas = page.locator('.preview-container canvas');
+		const canvas = page.locator('.preview-container canvas.map-layer');
 		const before = await canvas.screenshot();
 
 		// None of these change the framing, so the basemap must not be
@@ -177,7 +203,7 @@ test.describe('preview redraws', () => {
 		await page.getByText('Show stats').click();
 		await page.getByText('Scale bar').click();
 		await page.getByText('Show data credit').click();
-		await page.locator('input[type="text"]').last().fill('A title');
+		await page.getByLabel('Description').fill('A description');
 
 		await expect
 			.poll(async () => Buffer.compare(await canvas.screenshot(), before))
@@ -189,20 +215,40 @@ test.describe('preview redraws', () => {
 		expect(await cornerPixelIsOpaque(canvas)).toBe(true);
 	});
 
-	test('overlay-only settings redraw the basemap, not just clear it, once a title is set', async ({ page }) => {
-		// Regression test: with a title (or description) set, outputHeight
-		// includes a fractional reserved-band offset at non-reference preview
-		// widths. layerCache's sizedCanvas compared that fractional height
-		// against the canvas element's truncated (WebIDL unsigned long)
-		// height, saw a spurious mismatch on every redraw, and cleared the
-		// cached basemap bitmap without repainting it whenever only the
-		// overlay layer key changed — leaving the preview basemap blank. See
-		// layerCache.ts's sizedCanvas and buildSceneInput.ts's reservedBandPx.
+	test('the basemap is visible beside the title pill, not a blank strip', async ({ page }) => {
+		// Regression test for the "map pushed down, no basemap left/right of
+		// the title" bug: title/description used to reserve space by growing
+		// the canvas and shifting the map down, leaving a brand-new strip at
+		// the top with no basemap data fetched for it (a flat fill in the
+		// preview). Now the band is reserved inside the map's own fit (see
+		// buildProjection's `topInsetPx`), so real basemap paints all the way
+		// to the top of the canvas, including beside the pill.
 		await loadFixtureTrack(page);
 		await expect(page.getByText('Export PNG')).toBeEnabled();
 
-		const canvas = page.locator('.preview-container canvas');
-		const titleInput = page.locator('input[type="text"]').first();
+		const canvas = page.locator('.preview-container canvas.map-layer');
+		await page.getByLabel('Title').fill('Alpine Loop');
+
+		// Sampled near the very top-left corner — inside the reserved band,
+		// away from the centred title pill — where the old behaviour left an
+		// untouched (transparent, then flat-filled) strip.
+		await expect
+			.poll(() =>
+				canvas.evaluate((el: HTMLCanvasElement) => {
+					const ctx = el.getContext('2d')!;
+					const { data } = ctx.getImageData(2, 2, 1, 1);
+					return data[3] === 255;
+				})
+			)
+			.toBe(true);
+	});
+
+	test('overlay-only settings redraw the basemap, not just clear it, once a title is set', async ({ page }) => {
+		await loadFixtureTrack(page);
+		await expect(page.getByText('Export PNG')).toBeEnabled();
+
+		const canvas = page.locator('.preview-container canvas.map-layer');
+		const titleInput = page.getByLabel('Title');
 		await titleInput.fill('Alpine Loop');
 		await expect.poll(() => cornerPixelIsOpaque(canvas)).toBe(true);
 
@@ -233,7 +279,7 @@ test.describe('preview redraws', () => {
 			if (req.url().includes('tiles.openfreemap.org')) tileRequests++;
 		});
 
-		const canvas = page.locator('.preview-container canvas');
+		const canvas = page.locator('.preview-container canvas.map-layer');
 		const before = await canvas.screenshot();
 
 		const widthSlider = page.locator('.width input[type="range"]');

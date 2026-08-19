@@ -8,7 +8,7 @@ import type { Track } from '../gpx/types';
 import { zoomForProjection, type DetailBias } from './detail';
 import { DEFAULT_SCENE_STYLE } from './defaultStyle';
 import { measureTextWidth } from './measure';
-import { descriptionBandHeightPx, titleBandHeightPx, type SceneInput } from './scene';
+import { reservedBandPx, type SceneInput } from './scene';
 
 /** Margins are defined at this reference width, like everything else in SceneStyle. */
 const REFERENCE_MARGIN_PX = 40;
@@ -17,12 +17,26 @@ export interface Framing {
 	outputWidth: number;
 	outputHeight: number;
 	marginPx: number;
+	/**
+	 * Space reserved above the map for the title/description bands, in
+	 * output pixels — see `reservedBandPx` in scene.ts. `buildProjection`
+	 * treats this as unavailable space when fitting `bbox`, so the map
+	 * shrinks slightly to make room rather than the canvas growing or the
+	 * projection being shifted after the fact. Carried on `Framing` (rather
+	 * than recomputed in buildSceneInput) so `projection` and `visibleBbox`
+	 * below are already correct for it.
+	 */
+	reservedTopPx: number;
 	bbox: Bbox;
 	/**
 	 * The full extent actually visible on the canvas — wider than `bbox`
 	 * along whichever axis the aspect-ratio fit doesn't bind, plus the
-	 * margin. This, not `bbox`, is what basemap sources should fetch data
-	 * for (see `visibleBbox` in geo/projection.ts).
+	 * margin, and including the reserved title/description band (the
+	 * projection covers the whole canvas; only its *fit* treats the band as
+	 * unavailable — see `buildProjection`'s `topInsetPx`). This, not `bbox`,
+	 * is what basemap sources should fetch data for (see `visibleBbox` in
+	 * geo/projection.ts) — fetching by `bbox` alone would leave the band, and
+	 * the framing slack on the non-binding axis, with no basemap data.
 	 */
 	visibleBbox: Bbox;
 	projection: GeoProjection;
@@ -35,6 +49,13 @@ export interface ComputeFramingOptions {
 	height: number;
 	visibleTracks: Track[];
 	minCoverageKm: number;
+	/**
+	 * Presence only, not the text itself — so the fit (and the OSM fetch it
+	 * drives) is invalidated once per empty↔non-empty transition rather than
+	 * once per keystroke. See PreviewCanvas.svelte's `hasTitle`/`hasDescription`.
+	 */
+	hasTitle: boolean;
+	hasDescription: boolean;
 }
 
 /**
@@ -45,23 +66,30 @@ export interface ComputeFramingOptions {
  * buildSceneInput assembles the final SceneInput. Kept synchronous and
  * side-effect-free so it stays trivially shared between preview and export.
  *
- * Deliberately independent of the title/description text (see
- * buildSceneInput below, which reserves room for them by growing the
- * canvas rather than by feeding back into this fit) — so it, and therefore
- * the basemap fetch, stays untouched when a purely cosmetic setting
- * changes. See PreviewCanvas.svelte's framing `$derived`.
+ * Depends on title/description *presence* (via `hasTitle`/`hasDescription`),
+ * not their text — a title/description reserves room by shrinking the map's
+ * own fit (see `reservedTopPx` above and `buildProjection`'s `topInsetPx`),
+ * so the bbox/zoom this hands to the basemap fetch must already account for
+ * it, but a keystroke that doesn't cross the empty↔non-empty boundary must
+ * not re-trigger that fetch. See PreviewCanvas.svelte's framing `$derived`.
  */
 export function computeFraming(opts: ComputeFramingOptions): Framing | null {
 	if (opts.visibleTracks.length === 0) return null;
 
 	const marginPx = REFERENCE_MARGIN_PX * (opts.width / 1000);
 	const bbox = expandToMinimumCoverage(bboxOfTracks(opts.visibleTracks), opts.minCoverageKm);
-	const projection = buildProjection(opts.width, opts.height, bbox, marginPx);
+	const reservedTopPx = reservedBandPx(
+		{ title: opts.hasTitle ? 'x' : null, description: opts.hasDescription ? 'x' : null },
+		DEFAULT_SCENE_STYLE,
+		opts.width / 1000
+	);
+	const projection = buildProjection(opts.width, opts.height, bbox, marginPx, reservedTopPx);
 
 	return {
 		outputWidth: opts.width,
 		outputHeight: opts.height,
 		marginPx,
+		reservedTopPx,
 		bbox,
 		visibleBbox: visibleBbox(projection, opts.width, opts.height),
 		projection,
@@ -85,45 +113,6 @@ export interface BuildSceneOptions {
 }
 
 /**
- * A title and/or description reserve extra canvas height above the map
- * itself (see titleBandHeightPx / descriptionBandHeightPx in scene.ts, and
- * drawDescriptionBand which draws the description directly below the title
- * band) rather than shrinking the map's own fit, which is what keeps
- * computeFraming — and the bbox/zoom it hands to the basemap fetch —
- * independent of whether either is set. Making room for them re-fits the
- * exact same bbox at the exact same scale (a second buildProjection call
- * with the framing's own inputs) and just nudges the translate down by the
- * combined band height; the result is cached per `Framing` instance *and*
- * per band amount (title-only and title+description reserve different
- * heights, and both can occur against the same Framing as the user edits
- * either field) so repeated buildSceneInput calls that land on the same
- * amount — every preview redraw that doesn't change title/description —
- * keep returning the *same* projection object. layerCache.ts's cache keys
- * are identity-based (see identityToken), so a fresh instance every call
- * would defeat them.
- */
-const shiftedProjectionCache = new WeakMap<Framing, Map<number, GeoProjection>>();
-
-function projectionForReservedBand(framing: Framing, reservedBandPx: number): GeoProjection {
-	if (reservedBandPx <= 0) return framing.projection;
-
-	let byBand = shiftedProjectionCache.get(framing);
-	if (!byBand) {
-		byBand = new Map();
-		shiftedProjectionCache.set(framing, byBand);
-	}
-
-	let shifted = byBand.get(reservedBandPx);
-	if (!shifted) {
-		shifted = buildProjection(framing.outputWidth, framing.outputHeight, framing.bbox, framing.marginPx);
-		const [tx, ty] = shifted.translate();
-		shifted.translate([tx, ty + reservedBandPx]);
-		byBand.set(reservedBandPx, shifted);
-	}
-	return shifted;
-}
-
-/**
  * Turns app state plus already-loaded basemap data into a SceneInput. Used
  * by both the live preview and the actual export — sharing this one
  * function (and computeFraming above it) is what keeps them from drifting
@@ -135,20 +124,12 @@ export function buildSceneInput(opts: BuildSceneOptions): SceneInput {
 	const title = opts.title.trim() || null;
 	const description = opts.description.trim() || null;
 
-	const scale = opts.framing.outputWidth / 1000;
-	const titleBandPx = title ? titleBandHeightPx(DEFAULT_SCENE_STYLE) * scale : 0;
-	const descriptionBandPx = description ? descriptionBandHeightPx(DEFAULT_SCENE_STYLE) * scale : 0;
-	// Rounded so outputHeight below stays integral: canvas width/height are
-	// WebIDL unsigned longs, so a fractional value never reads back equal to
-	// what was assigned, and code that compares the two (layerCache's
-	// sizedCanvas) sees a spurious size change on every call.
-	const reservedBandPx = Math.round(titleBandPx + descriptionBandPx);
-
 	return {
 		outputWidth: opts.framing.outputWidth,
-		outputHeight: opts.framing.outputHeight + reservedBandPx,
+		outputHeight: opts.framing.outputHeight,
 		marginPx: opts.framing.marginPx,
-		projection: projectionForReservedBand(opts.framing, reservedBandPx),
+		reservedTopPx: opts.framing.reservedTopPx,
+		projection: opts.framing.projection,
 		basemap: opts.basemap,
 		tracks: opts.visibleTracks,
 		overlay: {

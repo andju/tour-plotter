@@ -63,6 +63,7 @@ function sceneInput(overrides: Partial<SceneInput> = {}): SceneInput {
 		outputWidth: 1000,
 		outputHeight: 1000,
 		marginPx: 20,
+		reservedTopPx: 0,
 		projection,
 		basemap: emptyBasemap(),
 		tracks: [
@@ -144,10 +145,10 @@ describe('overlayLayerKey', () => {
 		expect(overlayLayerKey(edited)).not.toBe(overlayLayerKey(base));
 	});
 
-	it('changes when the title changes', () => {
+	it('is unaffected by the title (the title/description text belongs to the uncached "text" phase)', () => {
 		const base = sceneInput();
 		const edited = sceneInput({ ...base, overlay: { ...overlay, title: 'Other Title' } });
-		expect(overlayLayerKey(edited)).not.toBe(overlayLayerKey(base));
+		expect(overlayLayerKey(edited)).toBe(overlayLayerKey(base));
 	});
 
 	it('changes when statsText changes', () => {
@@ -156,16 +157,22 @@ describe('overlayLayerKey', () => {
 		expect(overlayLayerKey(edited)).not.toBe(overlayLayerKey(base));
 	});
 
-	it('changes when description changes', () => {
+	it('is unaffected by the description (the title/description text belongs to the uncached "text" phase)', () => {
 		const base = sceneInput();
 		const edited = sceneInput({ ...base, overlay: { ...overlay, description: 'Other description' } });
-		expect(overlayLayerKey(edited)).not.toBe(overlayLayerKey(base));
+		expect(overlayLayerKey(edited)).toBe(overlayLayerKey(base));
 	});
 
 	it('is unaffected by showAdmin1 or detailBias', () => {
 		const base = sceneInput();
 		const edited = sceneInput({ ...base, overlay: { ...overlay, showAdmin1: false, detailBias: 'minimal' } });
 		expect(overlayLayerKey(edited)).toBe(overlayLayerKey(base));
+	});
+
+	it('changes when reservedTopPx changes (a title/description presence transition affects city-label culling)', () => {
+		const base = sceneInput();
+		const edited = sceneInput({ ...base, reservedTopPx: 42 });
+		expect(overlayLayerKey(edited)).not.toBe(overlayLayerKey(base));
 	});
 
 	it('changes for a new projection instance', () => {

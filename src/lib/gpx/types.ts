@@ -29,7 +29,7 @@ const PALETTE = [
 export function defaultStyle(index: number): TrackStyle {
 	return {
 		color: PALETTE[index % PALETTE.length],
-		widthPx: 3,
+		widthPx: 6,
 		opacity: 1,
 		visible: true
 	};

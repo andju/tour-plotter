@@ -6,7 +6,7 @@ export interface CachedLayers {
 	overlayKey: string;
 	/** The 'basemap' phase, composited first. */
 	below: HTMLCanvasElement;
-	/** The 'overlay' phase, composited last (city labels, scale bar, title). */
+	/** The 'overlay' phase, composited last (city labels, scale bar, credit). */
 	above: HTMLCanvasElement;
 }
 
@@ -47,25 +47,34 @@ export function basemapLayerKey(input: SceneInput): string {
 
 /**
  * Identifies everything the 'overlay' phase reads (city labels, scale bar,
- * title, credit). Kept separate from basemapLayerKey so a city-size or
+ * credit). Kept separate from basemapLayerKey so a city-size or
  * label-language change — both overlay-only — re-renders just this cheap
- * phase instead of the polygon-heavy basemap phase alongside it.
+ * phase instead of the polygon-heavy basemap phase alongside it. Title and
+ * description *text* are deliberately absent: they belong to the 'text'
+ * phase now, which is never cached (see scene.ts's ScenePhase doc comment
+ * and PreviewCanvas.svelte) — including them here would still bust this
+ * bitmap on every keystroke even though 'overlay' itself doesn't draw them.
+ * `reservedTopPx` is included, though: it changes 'overlay's own city-label
+ * culling (see drawPlaces' `mapTop`) on a title/description presence
+ * transition, which — unlike the text itself — is a real, if infrequent,
+ * input to this phase. In practice a `reservedTopPx` change always comes
+ * with a new `Framing` and therefore a new `projection` identity token
+ * anyway; this is belt-and-braces for that coupling.
  */
 export function overlayLayerKey(input: SceneInput): string {
-	const { outputWidth, outputHeight, marginPx, projection, basemap, overlay } = input;
+	const { outputWidth, outputHeight, marginPx, reservedTopPx, projection, basemap, overlay } = input;
 	return [
 		outputWidth,
 		outputHeight,
 		marginPx,
+		reservedTopPx,
 		identityToken(projection),
 		identityToken(basemap),
 		overlay.cityLabelLanguage,
 		overlay.citySize,
 		overlay.showCredit,
 		overlay.showScaleBar,
-		overlay.title,
-		overlay.statsText,
-		overlay.description
+		overlay.statsText
 	].join('|');
 }
 

@@ -3,7 +3,7 @@ import type { BasemapLayers } from '../basemap/types';
 import type { Track } from '../gpx/types';
 import { buildSceneInput, computeFraming, type BuildSceneOptions } from './buildSceneInput';
 import { DEFAULT_SCENE_STYLE } from './defaultStyle';
-import { descriptionBandHeightPx, titleBandHeightPx } from './scene';
+import { descriptionBandHeightPx, reservedBandPx, titleBandHeightPx } from './scene';
 
 function emptyBasemap(): BasemapLayers {
 	return {
@@ -37,7 +37,9 @@ function baseOptions(overrides: Partial<BuildSceneOptions> = {}): BuildSceneOpti
 		width: 1000,
 		height: 1000,
 		visibleTracks: [track],
-		minCoverageKm: 25
+		minCoverageKm: 25,
+		hasTitle: false,
+		hasDescription: false
 	})!;
 
 	return {
@@ -64,112 +66,153 @@ describe('buildSceneInput — title/description bands', () => {
 
 		expect(scene.outputHeight).toBe(opts.framing.outputHeight);
 		expect(scene.projection).toBe(opts.framing.projection);
+		expect(scene.reservedTopPx).toBe(0);
 	});
 
-	it('grows outputHeight by exactly the title band when a title is set', () => {
-		const opts = baseOptions({ title: 'Alpine Loop' });
-		const scene = buildSceneInput(opts);
-		const expectedBandPx = titleBandHeightPx(DEFAULT_SCENE_STYLE) * (opts.framing.outputWidth / 1000);
+	it('keeps outputHeight exactly the requested height when a title is set — the band is reserved inside the fit, not by growing the canvas', () => {
+		const framing = computeFraming({
+			width: 1000,
+			height: 1000,
+			visibleTracks: [track],
+			minCoverageKm: 25,
+			hasTitle: true,
+			hasDescription: false
+		})!;
+		const scene = buildSceneInput(baseOptions({ framing, title: 'Alpine Loop' }));
 
-		expect(scene.outputHeight).toBeCloseTo(opts.framing.outputHeight + expectedBandPx, 5);
-		expect(scene.outputWidth).toBe(opts.framing.outputWidth);
+		expect(scene.outputHeight).toBe(1000);
+		expect(scene.outputWidth).toBe(1000);
+		expect(scene.projection).toBe(framing.projection);
 	});
 
-	it('grows outputHeight by the title band plus the description band when both are set (description stacks directly below the title)', () => {
-		const opts = baseOptions({ title: 'Alpine Loop', description: 'A weekend ride through the Alps.' });
-		const scene = buildSceneInput(opts);
-		const scaleFactor = opts.framing.outputWidth / 1000;
-		const expectedBandPx =
-			(titleBandHeightPx(DEFAULT_SCENE_STYLE) + descriptionBandHeightPx(DEFAULT_SCENE_STYLE)) * scaleFactor;
+	it('Framing.reservedTopPx matches reservedBandPx for the requested title/description presence', () => {
+		const scale = 1000 / 1000;
 
-		expect(scene.outputHeight).toBeCloseTo(opts.framing.outputHeight + expectedBandPx, 5);
-	});
-
-	it('grows outputHeight by exactly the description band when only a description is set', () => {
-		const opts = baseOptions({ description: 'A weekend ride through the Alps.' });
-		const scene = buildSceneInput(opts);
-		const expectedBandPx = descriptionBandHeightPx(DEFAULT_SCENE_STYLE) * (opts.framing.outputWidth / 1000);
-
-		expect(scene.outputHeight).toBeCloseTo(opts.framing.outputHeight + expectedBandPx, 5);
-		expect(scene.projection).not.toBe(opts.framing.projection);
-	});
-
-	it('shifts the render projection down by the title band, without mutating the framing projection', () => {
-		const opts = baseOptions({ title: 'Alpine Loop' });
-		const before = opts.framing.projection.translate();
-		const scene = buildSceneInput(opts);
-		const after = opts.framing.projection.translate();
-		const scale = opts.framing.outputWidth / 1000;
-		const expectedBandPx = titleBandHeightPx(DEFAULT_SCENE_STYLE) * scale;
-
-		// The framing's own projection (used for the basemap fetch) must be untouched...
-		expect(after).toEqual(before);
-		// ...while the scene's render projection is offset by the title band.
-		const [tx, ty] = scene.projection.translate();
-		expect(tx).toBeCloseTo(before[0], 5);
-		expect(ty).toBeCloseTo(before[1] + expectedBandPx, 5);
-	});
-
-	it('returns the same projection instance across repeated calls against one framing (layerCache identity)', () => {
-		const opts = baseOptions({ title: 'Alpine Loop' });
-		const first = buildSceneInput(opts);
-		const second = buildSceneInput(opts);
-
-		expect(second.projection).toBe(first.projection);
-	});
-
-	it('shifts by the right amount when title-only and title+description scenes share one framing instance', () => {
-		const framing = computeFraming({ width: 1000, height: 1000, visibleTracks: [track], minCoverageKm: 25 })!;
-		const scale = framing.outputWidth / 1000;
-
-		const titleOnly = buildSceneInput(baseOptions({ framing, title: 'Alpine Loop' }));
-		const titleAndDescription = buildSceneInput(
-			baseOptions({ framing, title: 'Alpine Loop', description: 'A weekend ride through the Alps.' })
-		);
-		const titleOnlyAgain = buildSceneInput(baseOptions({ framing, title: 'Alpine Loop' }));
-
-		expect(titleOnly.projection.translate()[1]).toBeCloseTo(
-			framing.projection.translate()[1] + titleBandHeightPx(DEFAULT_SCENE_STYLE) * scale,
-			5
-		);
-		expect(titleAndDescription.projection.translate()[1]).toBeCloseTo(
-			framing.projection.translate()[1] +
-				(titleBandHeightPx(DEFAULT_SCENE_STYLE) + descriptionBandHeightPx(DEFAULT_SCENE_STYLE)) * scale,
-			5
-		);
-		// Landing back on the title-only amount reuses the title-only instance rather than
-		// the (still-cached) title+description one for the same Framing.
-		expect(titleOnlyAgain.projection).toBe(titleOnly.projection);
-		expect(titleOnlyAgain.projection).not.toBe(titleAndDescription.projection);
-	});
-
-	it('computeFraming is independent of whether a title/description will be drawn', () => {
-		const withTitle = computeFraming({ width: 1000, height: 1000, visibleTracks: [track], minCoverageKm: 25 });
-		const withoutTitle = computeFraming({ width: 1000, height: 1000, visibleTracks: [track], minCoverageKm: 25 });
-
-		expect(withTitle!.outputHeight).toBe(withoutTitle!.outputHeight);
-		expect(withTitle!.visibleBbox).toEqual(withoutTitle!.visibleBbox);
-		expect(withTitle!.zoom).toBe(withoutTitle!.zoom);
-	});
-
-	// Regression test: at a preview width like 600, the unrounded band height
-	// (28 * 1.5 * 0.6 = 25.2) made outputHeight fractional. Canvas
-	// width/height are WebIDL unsigned longs, so a fractional value never
-	// reads back equal to what was assigned — layerCache's sizedCanvas saw a
-	// spurious size change on every redraw and cleared its cached basemap
-	// bitmap without repainting it, leaving the preview blank whenever an
-	// overlay-only setting (stats, scale bar, credit, city size, ...) changed
-	// while a title/description was set. See layerCache.ts's sizedCanvas.
-	it('keeps outputHeight an integer at a non-reference width with a title and description', () => {
-		const framing = computeFraming({ width: 600, height: 800, visibleTracks: [track], minCoverageKm: 25 })!;
-		const scene = buildSceneInput(
-			baseOptions({ framing, title: 'Alpine Loop', description: 'A weekend ride through the Alps.' })
+		const titleOnly = computeFraming({
+			width: 1000,
+			height: 1000,
+			visibleTracks: [track],
+			minCoverageKm: 25,
+			hasTitle: true,
+			hasDescription: false
+		})!;
+		expect(titleOnly.reservedTopPx).toBe(
+			reservedBandPx({ title: 'x', description: null }, DEFAULT_SCENE_STYLE, scale)
 		);
 
-		expect(Number.isInteger(scene.outputHeight)).toBe(true);
+		const titleAndDescription = computeFraming({
+			width: 1000,
+			height: 1000,
+			visibleTracks: [track],
+			minCoverageKm: 25,
+			hasTitle: true,
+			hasDescription: true
+		})!;
+		expect(titleAndDescription.reservedTopPx).toBe(
+			reservedBandPx({ title: 'x', description: 'x' }, DEFAULT_SCENE_STYLE, scale)
+		);
+	});
 
-		const [, framingTy] = framing.projection.translate();
-		const [, sceneTy] = scene.projection.translate();
-		expect(sceneTy - framingTy).toBe(scene.outputHeight - framing.outputHeight);
+	it('reserves room for the band by shrinking the map fit, not by shifting a taller canvas', () => {
+		const width = 1000;
+		const height = 1000;
+		const without = computeFraming({
+			width,
+			height,
+			visibleTracks: [track],
+			minCoverageKm: 25,
+			hasTitle: false,
+			hasDescription: false
+		})!;
+		const withTitle = computeFraming({
+			width,
+			height,
+			visibleTracks: [track],
+			minCoverageKm: 25,
+			hasTitle: true,
+			hasDescription: true
+		})!;
+
+		expect(withTitle.outputHeight).toBe(without.outputHeight);
+		expect(withTitle.marginPx).toBe(without.marginPx);
+		expect(withTitle.reservedTopPx).toBeGreaterThan(0);
+
+		// The bbox's own top edge (maxLat) must project below the reserved
+		// band + margin, not above it — the fit treats that space as
+		// unavailable rather than letting the map bleed into it.
+		const [, , , maxLat] = withTitle.bbox;
+		const centerLon = (withTitle.bbox[0] + withTitle.bbox[2]) / 2;
+		const [, topY] = withTitle.projection([centerLon, maxLat])!;
+		expect(topY).toBeGreaterThanOrEqual(withTitle.reservedTopPx + withTitle.marginPx - 1e-6);
+	});
+
+	it('visibleBbox covers the full canvas including the reserved band, so the basemap fetch covers it too', () => {
+		const width = 1000;
+		const height = 1000;
+		const framing = computeFraming({
+			width,
+			height,
+			visibleTracks: [track],
+			minCoverageKm: 25,
+			hasTitle: true,
+			hasDescription: true
+		})!;
+
+		// y = 0 is the very top of the canvas, inside the reserved band.
+		const [lon, lat] = framing.projection.invert!([width / 2, 0])!;
+		expect(lon).toBeCloseTo(framing.visibleBbox[0] + (framing.visibleBbox[2] - framing.visibleBbox[0]) / 2, 5);
+		expect(lat).toBeCloseTo(framing.visibleBbox[3], 5);
+	});
+
+	it('computeFraming depends on title/description presence, not their text', () => {
+		const withoutText = computeFraming({
+			width: 1000,
+			height: 1000,
+			visibleTracks: [track],
+			minCoverageKm: 25,
+			hasTitle: false,
+			hasDescription: false
+		});
+		const alsoWithoutText = computeFraming({
+			width: 1000,
+			height: 1000,
+			visibleTracks: [track],
+			minCoverageKm: 25,
+			hasTitle: false,
+			hasDescription: false
+		});
+		const withTitle = computeFraming({
+			width: 1000,
+			height: 1000,
+			visibleTracks: [track],
+			minCoverageKm: 25,
+			hasTitle: true,
+			hasDescription: false
+		});
+
+		expect(withoutText!.outputHeight).toBe(alsoWithoutText!.outputHeight);
+		expect(withoutText!.reservedTopPx).toBe(alsoWithoutText!.reservedTopPx);
+		expect(withoutText!.reservedTopPx).not.toBe(withTitle!.reservedTopPx);
+	});
+
+	// Regression coverage for the historical "pushed down / blank strip" bug:
+	// with a title/description set, the map used to be pushed into a taller
+	// canvas whose new top strip had no basemap data fetched for it. Now the
+	// canvas never grows, so there's nothing to regress here beyond what the
+	// tests above already assert — this test only pins the exact numbers so a
+	// future change to titleBandHeightPx/descriptionBandHeightPx is visible.
+	it('reserves exactly titleBandHeightPx + descriptionBandHeightPx (scaled) when both are set', () => {
+		const scale = 600 / 1000;
+		const framing = computeFraming({
+			width: 600,
+			height: 800,
+			visibleTracks: [track],
+			minCoverageKm: 25,
+			hasTitle: true,
+			hasDescription: true
+		})!;
+
+		const expected = (titleBandHeightPx(DEFAULT_SCENE_STYLE) + descriptionBandHeightPx(DEFAULT_SCENE_STYLE)) * scale;
+		expect(framing.reservedTopPx).toBeCloseTo(expected, 5);
 	});
 });

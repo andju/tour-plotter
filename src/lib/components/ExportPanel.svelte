@@ -39,7 +39,9 @@
 			width: exportSettings.outputWidth,
 			height: exportSettings.outputHeight,
 			visibleTracks: trackList.visibleTracks,
-			minCoverageKm: exportSettings.minCoverageKm
+			minCoverageKm: exportSettings.minCoverageKm,
+			hasTitle: exportSettings.title.trim().length > 0,
+			hasDescription: exportSettings.description.trim().length > 0
 		});
 		if (!framing) return null;
 
