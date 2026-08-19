@@ -216,8 +216,7 @@ export function composeScenePhase(renderer: Renderer, input: SceneInput, phase: 
 
 		const admin0Style: PathStyle = {
 			stroke: style.admin0Stroke,
-			strokeWidthPx: style.referenceStrokeWidthPx.admin0 * scale,
-			dashPx: [4 * scale, 3 * scale]
+			strokeWidthPx: style.referenceStrokeWidthPx.admin0 * scale
 		};
 		for (const feature of visibleFeatures(basemap.admin0, zoom, bias, visibleBbox)) {
 			renderer.path(feature.geometry, admin0Style);

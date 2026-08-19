@@ -30,6 +30,19 @@
 		});
 	}
 
+	/**
+	 * document.fonts.ready only resolves loads already in flight — it won't
+	 * trigger one on its own. Nothing on the page necessarily renders Roboto
+	 * text yet when export starts, so request both weights explicitly; this
+	 * guarantees composeScene's canvas-based text measurement (shared by both
+	 * the PNG and SVG renderers) sees Roboto's real metrics, not a fallback
+	 * font's. Resolves instantly on repeat exports once the browser has cached
+	 * the font.
+	 */
+	async function fontsReady(): Promise<void> {
+		await Promise.all([document.fonts.load('400 16px Roboto'), document.fonts.load('700 16px Roboto')]);
+	}
+
 	// Export always performs its own basemap load at export resolution,
 	// independent of the preview's — the two render at different zooms (the
 	// point of "export size is independent of viewport size"), so they must
@@ -70,6 +83,7 @@
 			await painted();
 			const scene = await currentScene();
 			if (!scene) return;
+			await fontsReady();
 			const canvas = document.createElement('canvas');
 			canvas.width = scene.outputWidth;
 			canvas.height = scene.outputHeight;
@@ -91,6 +105,7 @@
 			await painted();
 			const scene = await currentScene();
 			if (!scene) return;
+			await fontsReady();
 			const renderer = new SvgRenderer(scene.outputWidth, scene.outputHeight, scene.projection);
 			composeScene(renderer, scene);
 			downloadBlob(svgBlob(renderer.serialize()), 'track-map.svg');

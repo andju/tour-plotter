@@ -16,12 +16,12 @@ export const DEFAULT_SCENE_STYLE: SceneStyle = {
 	textHalo: '#ffffff',
 	trackCasing: '#ffffff',
 	scaleBarColor: '#4a4a42',
-	fontFamily: 'system-ui, sans-serif',
+	fontFamily: 'Roboto, system-ui, sans-serif',
 	referenceStrokeWidthPx: {
 		coastline: 0.8,
 		water: 0.5,
 		waterway: 0.6,
-		admin0: 1.2,
+		admin0: 1.8,
 		admin1: 0.6,
 		trackCasingExtra: 2
 	},
