@@ -1,15 +1,3 @@
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## Stack
-
-SvelteKit (Svelte 5, runes mode) + TypeScript, `adapter-static`, client-only (`ssr = false`, `prerender = true` in `src/routes/+layout.ts`). Vitest for unit tests, Playwright/Chromium for e2e. Node 24 / npm 11.
-
-Rendering is **d3-geo drawing to Canvas 2D or SVG**, not a tiled map library (Leaflet/MapLibre). That choice follows directly from the app's two hard requirements: export size is fixed by the user, not the viewport, and framing is computed automatically from track bounds rather than composed by hand. Tile-based maps snap to discrete zoom levels and cap out on WebGL canvas size; `d3.geoMercator` + `geoPath` give exact, resolution-independent framing with no size ceiling.
-
-Basemap data is [Natural Earth](https://www.naturalearthdata.com/) (public domain, no attribution required), fetched and trimmed once via `npm run fetch-basemap` into `static/basemap/*.json` — land, country borders, state/province borders, and cities (filtered to `scalerank` in the shipped data; the "major cities" UI slider filters further at render time). No tile server, no API key, fully offline-capable.
-
 ## Commands
 
 ```bash
@@ -53,10 +41,3 @@ The live preview and the actual export are the same code path at different resol
 ### Label placement (`src/lib/render/labels.ts`)
 
 Greedy placement (most important city first, by Natural Earth's `scalerank`; keep a candidate only if its box doesn't overlap an already-placed one). Text measurement is injected as a parameter rather than imported directly — jsdom (used in unit tests) has no Canvas 2D support, so the real measurer (`render/measure.ts`, backed by an offscreen canvas) is browser-only, while the placement algorithm itself stays unit-testable with a deterministic stand-in measurer.
-
-## Devcontainer notes
-
-- `node_modules` is a **named volume**, not a bind mount. It does not persist to the host and is not visible outside the container. Rebuilding the container without re-running `npm install` leaves it empty.
-- `git config core.autocrlf input` is applied on every container start — the host is Windows/WSL2.
-- Claude Code runs in `bypassPermissions` mode here by configuration.
-- Playwright's Chromium is expected to be pre-installed by `postCreateCommand`; if a fresh container shows no browsers under `~/.cache/ms-playwright`, run `npx playwright install --with-deps chromium`.
