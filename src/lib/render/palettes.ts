@@ -14,7 +14,7 @@ import type { SceneStyle } from './scene';
  * and font sizes stay shared via DEFAULT_SCENE_STYLE so the 1000px-reference
  * scale invariant (scene.ts) is untouched by a style switch.
  */
-export type MapStyleId = 'classic' | 'liberty' | 'bright' | 'positron' | 'dark' | 'fiord';
+export type MapStyleId = 'bright' | 'classic' | 'liberty' | 'positron' | 'dark' | 'fiord';
 
 export interface MapStyleOption {
 	id: MapStyleId;
@@ -149,15 +149,15 @@ const FIORD = palette({
 });
 
 export const MAP_STYLES: readonly MapStyleOption[] = [
+	{ id: 'bright', label: 'Bright', style: BRIGHT },
 	{ id: 'classic', label: 'Classic', style: DEFAULT_SCENE_STYLE },
 	{ id: 'liberty', label: 'Liberty', style: LIBERTY },
-	{ id: 'bright', label: 'Bright', style: BRIGHT },
 	{ id: 'positron', label: 'Positron', style: POSITRON },
 	{ id: 'dark', label: 'Dark', style: DARK },
 	{ id: 'fiord', label: 'Fiord', style: FIORD }
 ];
 
-export const DEFAULT_MAP_STYLE: MapStyleId = 'classic';
+export const DEFAULT_MAP_STYLE: MapStyleId = 'bright';
 
 const STYLES_BY_ID = new Map(MAP_STYLES.map((option) => [option.id, option.style]));
 

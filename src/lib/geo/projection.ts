@@ -35,25 +35,7 @@ const EDGE_SAMPLES = 32;
  * other bbox — no special-casing needed past this point.
  */
 export function buildProjection(width: number, height: number, bbox: Bbox, marginPx: number): GeoProjection {
-	const [minLon, minLat, maxLon, maxLat] = bbox;
-	const centerLon = normalizeLon(minLon + bboxWidthDeg(minLon, maxLon) / 2);
-
-	const probe = geoMercator().scale(1).translate([0, 0]).rotate([-centerLon, 0]);
-	const samples = rectangleEdgeSamples(bbox);
-
-	let x0 = Infinity;
-	let x1 = -Infinity;
-	let y0 = Infinity;
-	let y1 = -Infinity;
-	for (const point of samples) {
-		const projected = probe(point);
-		if (!projected) continue;
-		const [x, y] = projected;
-		x0 = Math.min(x0, x);
-		x1 = Math.max(x1, x);
-		y0 = Math.min(y0, y);
-		y1 = Math.max(y1, y);
-	}
+	const { centerLon, x0, x1, y0, y1 } = scanBboxExtent(bbox);
 
 	const availableWidth = width - 2 * marginPx;
 	const availableHeight = height - 2 * marginPx;
@@ -94,6 +76,47 @@ export function visibleBbox(projection: GeoProjection, width: number, height: nu
 	const [minLon, maxLat] = projection.invert!([0, 0])!;
 	const [maxLon, minLat] = projection.invert!([width, height])!;
 	return [minLon, minLat, maxLon, maxLat];
+}
+
+/**
+ * The height-to-width ratio a bbox would project to at Mercator scale 1 —
+ * i.e. the aspect ratio `buildProjection` fits it into. Used to size the
+ * minimap's box to the extent's real shape (a near-polar or near-equatorial
+ * bbox is far from square) rather than leaving dead margin on one axis.
+ * Reuses the same edge-sampling `buildProjection` does, at scale 1, so this
+ * never drifts from what that function will actually compute.
+ */
+export function projectedAspect(bbox: Bbox): number {
+	const { x0, x1, y0, y1 } = scanBboxExtent(bbox);
+	return (y1 - y0) / (x1 - x0);
+}
+
+/**
+ * Shared by `buildProjection` and `projectedAspect`: pre-rotates to the
+ * bbox's own center longitude (see `buildProjection`'s header comment for
+ * why), then scans its edge samples through a scale-1 Mercator probe to find
+ * the raw projected extent both callers need.
+ */
+function scanBboxExtent(bbox: Bbox): { centerLon: number; x0: number; x1: number; y0: number; y1: number } {
+	const [minLon, , maxLon] = bbox;
+	const centerLon = normalizeLon(minLon + bboxWidthDeg(minLon, maxLon) / 2);
+	const probe = geoMercator().scale(1).translate([0, 0]).rotate([-centerLon, 0]);
+
+	let x0 = Infinity;
+	let x1 = -Infinity;
+	let y0 = Infinity;
+	let y1 = -Infinity;
+	for (const point of rectangleEdgeSamples(bbox)) {
+		const projected = probe(point);
+		if (!projected) continue;
+		const [x, y] = projected;
+		x0 = Math.min(x0, x);
+		x1 = Math.max(x1, x);
+		y0 = Math.min(y0, y);
+		y1 = Math.max(y1, y);
+	}
+
+	return { centerLon, x0, x1, y0, y1 };
 }
 
 /** Points along all 4 edges of the bbox rectangle, hugging its parallels/meridians. */

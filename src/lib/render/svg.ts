@@ -1,16 +1,21 @@
 import { geoPath, type GeoProjection } from 'd3-geo';
-import type { FillStyle, PathStyle, Renderer, TextStyle } from './renderer';
+import type { FillStyle, PathStyle, RectStyle, Renderer, TextStyle } from './renderer';
 
 export class SvgRenderer implements Renderer {
 	private readonly toPathData: (geometry: GeoJSON.Geometry) => string | null;
-	private readonly elements: string[] = [];
+	private readonly elements: string[];
 
 	constructor(
 		private readonly width: number,
 		private readonly height: number,
-		projection: GeoProjection
+		projection: GeoProjection,
+		elements: string[] = []
 	) {
 		this.toPathData = geoPath(projection);
+		// Shared by reference with any withProjection() child, so a sub-renderer's
+		// output lands in the same document in draw order rather than a separate
+		// buffer that would need merging.
+		this.elements = elements;
 	}
 
 	path(geometry: GeoJSON.Geometry, style: PathStyle): void {
@@ -64,18 +69,24 @@ export class SvgRenderer implements Renderer {
 		this.elements.push(`<text ${attrs}>${escapeXml(value)}</text>`);
 	}
 
-	rect(x: number, y: number, w: number, h: number, style: FillStyle): void {
+	rect(x: number, y: number, w: number, h: number, style: RectStyle): void {
 		const attrs = [
 			`x="${x}"`,
 			`y="${y}"`,
 			`width="${w}"`,
 			`height="${h}"`,
-			`fill="${style.fill}"`,
+			`fill="${style.fill ?? 'none'}"`,
+			style.stroke ? `stroke="${style.stroke}"` : '',
+			style.stroke ? `stroke-width="${style.strokeWidthPx ?? 1}"` : '',
 			style.opacity !== undefined ? `opacity="${style.opacity}"` : ''
 		]
 			.filter(Boolean)
 			.join(' ');
 		this.elements.push(`<rect ${attrs} />`);
+	}
+
+	withProjection(projection: GeoProjection): Renderer {
+		return new SvgRenderer(this.width, this.height, projection, this.elements);
 	}
 
 	serialize(): string {

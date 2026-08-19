@@ -1,5 +1,5 @@
 import { geoPath, type GeoProjection } from 'd3-geo';
-import type { FillStyle, PathStyle, Renderer, TextStyle } from './renderer';
+import type { FillStyle, PathStyle, RectStyle, Renderer, TextStyle } from './renderer';
 
 export class CanvasRenderer implements Renderer {
 	private readonly project: (geometry: GeoJSON.Geometry) => void;
@@ -58,12 +58,23 @@ export class CanvasRenderer implements Renderer {
 		this.ctx.restore();
 	}
 
-	rect(x: number, y: number, w: number, h: number, style: FillStyle): void {
+	rect(x: number, y: number, w: number, h: number, style: RectStyle): void {
 		this.ctx.save();
 		this.ctx.globalAlpha = style.opacity ?? 1;
-		this.ctx.fillStyle = style.fill;
-		this.ctx.fillRect(x, y, w, h);
+		if (style.fill) {
+			this.ctx.fillStyle = style.fill;
+			this.ctx.fillRect(x, y, w, h);
+		}
+		if (style.stroke) {
+			this.ctx.strokeStyle = style.stroke;
+			this.ctx.lineWidth = style.strokeWidthPx ?? 1;
+			this.ctx.strokeRect(x, y, w, h);
+		}
 		this.ctx.restore();
+	}
+
+	withProjection(projection: GeoProjection): Renderer {
+		return new CanvasRenderer(this.ctx, projection);
 	}
 }
 

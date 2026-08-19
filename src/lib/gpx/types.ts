@@ -1,3 +1,5 @@
+import { DEFAULT_TRACK_COLORS } from './trackColors';
+
 export interface TrackPoint {
 	lon: number;
 	lat: number;
@@ -14,21 +16,9 @@ export interface TrackStyle {
 	visible: boolean;
 }
 
-/** Colorblind-safe categorical palette (Okabe-Ito), cycled by track index. */
-const PALETTE = [
-	'#E69F00',
-	'#56B4E9',
-	'#009E73',
-	'#F0E442',
-	'#0072B2',
-	'#D55E00',
-	'#CC79A7',
-	'#000000'
-];
-
 export function defaultStyle(index: number): TrackStyle {
 	return {
-		color: PALETTE[index % PALETTE.length],
+		color: DEFAULT_TRACK_COLORS[index % DEFAULT_TRACK_COLORS.length],
 		widthPx: 6,
 		opacity: 1,
 		visible: true

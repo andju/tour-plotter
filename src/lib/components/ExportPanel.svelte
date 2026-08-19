@@ -2,12 +2,14 @@
 	import { loadBasemap } from '$lib/basemap/loadBasemap';
 	import { SUPPORTED_LANGUAGES, type LanguageCode } from '$lib/basemap/languages';
 	import { CITY_SIZE_MAX, populationLabel } from '$lib/basemap/placeSize';
+	import { loadWorldAdmin0 } from '$lib/basemap/worldAdmin0';
+	import { loadWorldLand } from '$lib/basemap/worldLand';
 	import { canvasToPngBlob, downloadBlob, svgBlob } from '$lib/export/download';
 	import { buildSceneInput, computeFraming } from '$lib/render/buildSceneInput';
 	import { CanvasRenderer } from '$lib/render/canvas';
 	import type { DetailBias } from '$lib/render/detail';
 	import { MAP_STYLES, type MapStyleId } from '$lib/render/palettes';
-	import { composeScene, type TitlePosition } from '$lib/render/scene';
+	import { composeScene, type OverlayPosition } from '$lib/render/scene';
 	import { SvgRenderer } from '$lib/render/svg';
 	import { basemapStatus } from '$lib/state/basemapStatus.svelte';
 	import { exportSettings } from '$lib/state/settings.svelte';
@@ -57,7 +59,11 @@
 		});
 		if (!framing) return null;
 
-		const basemap = await loadBasemap(exportSettings.basemapSource, framing.visibleBbox, framing.zoom, fetch);
+		const [basemap, worldLand, worldAdmin0] = await Promise.all([
+			loadBasemap(exportSettings.basemapSource, framing.visibleBbox, framing.zoom, fetch),
+			exportSettings.showMinimap ? loadWorldLand(fetch) : Promise.resolve(null),
+			exportSettings.showMinimap ? loadWorldAdmin0(fetch) : Promise.resolve(null)
+		]);
 
 		return buildSceneInput({
 			framing,
@@ -72,7 +78,12 @@
 			title: exportSettings.title,
 			titlePosition: exportSettings.titlePosition,
 			cityLabelLanguage: exportSettings.cityLabelLanguage,
-			citySize: exportSettings.citySize
+			citySize: exportSettings.citySize,
+			showMinimap: exportSettings.showMinimap,
+			minimapPosition: exportSettings.minimapPosition,
+			minimapCoverageKm: exportSettings.minimapCoverageKm,
+			worldLand,
+			worldAdmin0
 		});
 	}
 
@@ -203,7 +214,7 @@
 		Title position
 		<select
 			value={exportSettings.titlePosition}
-			onchange={(e) => (exportSettings.titlePosition = (e.target as HTMLSelectElement).value as TitlePosition)}
+			onchange={(e) => (exportSettings.titlePosition = (e.target as HTMLSelectElement).value as OverlayPosition)}
 		>
 			<option value="top-left">Top left</option>
 			<option value="top-center">Top center</option>
@@ -213,6 +224,48 @@
 			<option value="bottom-right">Bottom right</option>
 		</select>
 	</label>
+
+	<label class="checkbox">
+		<input
+			type="checkbox"
+			checked={exportSettings.showMinimap}
+			onchange={(e) => (exportSettings.showMinimap = (e.target as HTMLInputElement).checked)}
+		/>
+		Minimap
+	</label>
+
+	{#if exportSettings.showMinimap}
+		<label>
+			Minimap position
+			<select
+				value={exportSettings.minimapPosition}
+				onchange={(e) => (exportSettings.minimapPosition = (e.target as HTMLSelectElement).value as OverlayPosition)}
+			>
+				<option value="top-left">Top left</option>
+				<option value="top-center">Top center</option>
+				<option value="top-right">Top right</option>
+				<option value="bottom-left">Bottom left</option>
+				<option value="bottom-center">Bottom center</option>
+				<option value="bottom-right">Bottom right</option>
+			</select>
+		</label>
+
+		<label class="city-size">
+			Minimap coverage
+			<div class="slider-row">
+				<input
+					type="range"
+					min="1000"
+					max="20000"
+					step="500"
+					value={exportSettings.minimapCoverageKm}
+					aria-valuetext={`${exportSettings.minimapCoverageKm} km`}
+					oninput={(e) => (exportSettings.minimapCoverageKm = Number((e.target as HTMLInputElement).value))}
+				/>
+				<output class="readout">{exportSettings.minimapCoverageKm} km</output>
+			</div>
+		</label>
+	{/if}
 
 	<label>
 		Detail

@@ -2,9 +2,11 @@
 	import { onMount } from 'svelte';
 	import { loadBasemap } from '$lib/basemap/loadBasemap';
 	import type { BasemapLayers } from '$lib/basemap/types';
+	import { loadWorldAdmin0 } from '$lib/basemap/worldAdmin0';
+	import { loadWorldLand } from '$lib/basemap/worldLand';
 	import { buildSceneInput, computeFraming, type BuildSceneOptions, type Framing } from '$lib/render/buildSceneInput';
 	import { CanvasRenderer } from '$lib/render/canvas';
-	import { basemapLayerKey, overlayLayerKey, renderCachedLayers, type CachedLayers } from '$lib/render/layerCache';
+	import { basemapLayerKey, minimapLayerKey, overlayLayerKey, renderCachedLayers, type CachedLayers } from '$lib/render/layerCache';
 	import { composeScenePhase, type SceneInput } from '$lib/render/scene';
 	import { basemapStatus } from '$lib/state/basemapStatus.svelte';
 	import { exportSettings } from '$lib/state/settings.svelte';
@@ -113,6 +115,29 @@
 			});
 	});
 
+	// Coarse world land backing the minimap inset — fetched lazily, only once
+	// the minimap is switched on, and kept separate from the basemap-fetch
+	// effect above so enabling it never touches basemapStatus or re-requests
+	// tiles. A failed fetch leaves worldLand null (drawMinimap just omits the
+	// panel — see scene.ts) and retries next time this effect's dependencies
+	// change, e.g. the checkbox being toggled off and on again.
+	let worldLand = $state<GeoJSON.FeatureCollection | null>(null);
+	let worldAdmin0 = $state<GeoJSON.FeatureCollection | null>(null);
+
+	$effect(() => {
+		if (!exportSettings.showMinimap || worldLand) return;
+		loadWorldLand(fetch)
+			.then((fc) => (worldLand = fc))
+			.catch((err) => console.error('Failed to load minimap land data', err));
+	});
+
+	$effect(() => {
+		if (!exportSettings.showMinimap || worldAdmin0) return;
+		loadWorldAdmin0(fetch)
+			.then((fc) => (worldAdmin0 = fc))
+			.catch((err) => console.error('Failed to load minimap admin0 data', err));
+	});
+
 	// True from the moment a redraw is scheduled until the canvas has been
 	// repainted. Drives the busy badge — composing the 'basemap'/'overlay'
 	// phases from scratch costs ~250ms at preview size, which is far too long
@@ -123,13 +148,13 @@
 	let redrawing = $state(false);
 	let frame = 0;
 
-	// The 'basemap' and 'overlay' phases as bitmaps, keyed on everything that
-	// affects them (layerCacheKey). Per-track style never appears in that key,
-	// so a slider drag hits this cache on every tick and only the 'tracks'
-	// phase — a few ms — has to be redrawn live. Title text/position don't
-	// appear in it either (see layerCache.ts's overlayLayerKey) — the map
-	// effect below always builds its scene with a blank title, so a keystroke
-	// in the title field never busts this cache.
+	// The 'basemap', 'overlay' and 'minimap' phases as bitmaps, each keyed on
+	// everything that affects it (see layerCache.ts). Per-track style never
+	// appears in any of those keys, so a slider drag hits this cache on every
+	// tick and only the 'tracks' phase — a few ms — has to be redrawn live.
+	// Title text/position don't appear in any of them either — the map effect
+	// below always builds its scene with a blank title, so a keystroke in the
+	// title field never busts this cache.
 	let cache: CachedLayers | null = null;
 
 	type Loaded = NonNullable<typeof loaded>;
@@ -152,13 +177,19 @@
 			title,
 			titlePosition: exportSettings.titlePosition,
 			cityLabelLanguage: exportSettings.cityLabelLanguage,
-			citySize: exportSettings.citySize
+			citySize: exportSettings.citySize,
+			showMinimap: exportSettings.showMinimap,
+			minimapPosition: exportSettings.minimapPosition,
+			minimapCoverageKm: exportSettings.minimapCoverageKm,
+			worldLand,
+			worldAdmin0
 		};
 	}
 
-	// The map: cached 'basemap' + live 'tracks' + cached 'overlay'. Never
-	// reads exportSettings.title — its scene is always built with a blank
-	// title, so a keystroke in that field cannot invalidate anything here.
+	// The map: cached 'basemap' + live 'tracks' + cached 'overlay' + cached
+	// 'minimap'. Never reads exportSettings.title — its scene is always built
+	// with a blank title, so a keystroke in that field cannot invalidate
+	// anything here.
 	$effect(() => {
 		if (!canvasEl) return;
 		const current = loaded;
@@ -190,7 +221,12 @@
 		const visibleTracks = trackList.visibleTracks.map((t) => ({ ...t, style: { ...t.style } }));
 		const scene = buildSceneInput({ ...sceneOptions(current, ''), visibleTracks });
 
-		if (cache && cache.basemapKey === basemapLayerKey(scene) && cache.overlayKey === overlayLayerKey(scene)) {
+		if (
+			cache &&
+			cache.basemapKey === basemapLayerKey(scene) &&
+			cache.overlayKey === overlayLayerKey(scene) &&
+			cache.minimapKey === minimapLayerKey(scene)
+		) {
 			// A pure track-style tick: the cached bitmaps are still valid, so
 			// composite inline rather than deferring — it's cheap enough not to
 			// need the two-frame dance below, and deferring it would show one
@@ -248,6 +284,7 @@
 		ctx.drawImage(layers.below, 0, 0);
 		composeScenePhase(new CanvasRenderer(ctx, scene.projection), scene, 'tracks');
 		ctx.drawImage(layers.above, 0, 0);
+		ctx.drawImage(layers.inset, 0, 0);
 	}
 
 	// The title pill: the 'text' phase only, redrawn live on every keystroke

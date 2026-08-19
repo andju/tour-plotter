@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { trackList } from '$lib/state/tracks.svelte';
+	import ColorPicker from './ColorPicker.svelte';
 </script>
 
 {#if trackList.tracks.length === 0}
@@ -9,7 +10,11 @@
 		{#each trackList.tracks as track (track.id)}
 			<li>
 				<div class="row">
-					<input type="color" value={track.style.color} onchange={(e) => trackList.updateStyle(track.id, { color: (e.target as HTMLInputElement).value })} />
+					<ColorPicker
+						value={track.style.color}
+						label={`Color for ${track.name}`}
+						onchange={(hex) => trackList.updateStyle(track.id, { color: hex })}
+					/>
 					<input
 						type="text"
 						value={track.name}

@@ -52,6 +52,27 @@ const LAYERS: Layer[] = [
 		keepProperties: []
 	},
 	{
+		// 110m ("small scale") land, coarser than land.json on purpose — this
+		// backs the minimap inset (render/minimap.ts), which renders a whole
+		// continent or the whole world into a ~180px panel, so 50m detail
+		// would cost bytes with no visible benefit. Source-independent: used
+		// even when the main basemap is OSM, whose tiles carry no land
+		// polygon at all — see basemap/worldLand.ts.
+		src: '110m/physical/ne_110m_land.json',
+		out: 'world-land.json',
+		keepProperties: []
+	},
+	{
+		// 110m admin0 boundary lines, the coarse counterpart to
+		// admin0-borders.json (below) for the same reason world-land.json is
+		// coarser than land.json — this backs the minimap inset, which needs
+		// country borders even in OSM mode, whose tiles carry no admin0 layer
+		// at all. Source-independent — see basemap/worldAdmin0.ts.
+		src: '110m/cultural/ne_110m_admin_0_boundary_lines_land.json',
+		out: 'world-admin0.json',
+		keepProperties: []
+	},
+	{
 		src: '50m/physical/ne_50m_lakes.json',
 		out: 'lakes.json',
 		keepProperties: ['name', 'min_zoom']
