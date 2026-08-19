@@ -1,7 +1,7 @@
 import { DEFAULT_LANGUAGE, type LanguageCode } from '../basemap/languages';
 import type { DetailBias } from '../render/detail';
 import { DEFAULT_MAP_STYLE, type MapStyleId } from '../render/palettes';
-import type { TitlePosition } from '../render/scene';
+import type { OverlayPosition } from '../render/scene';
 
 class ExportSettingsState {
 	outputWidth = $state(1600);
@@ -27,8 +27,12 @@ class ExportSettingsState {
 	showCredit = $state(true);
 	showScaleBar = $state(true);
 	title = $state('');
-	titlePosition: TitlePosition = $state('top-center');
+	titlePosition: OverlayPosition = $state('top-center');
 	showStats = $state(true);
+	showMinimap = $state(false);
+	minimapPosition: OverlayPosition = $state('bottom-right');
+	/** Radius (km) the minimap frames around the tour; the top of its slider reaches a near-global view — see render/minimap.ts's ±84° latitude clamp. */
+	minimapCoverageKm = $state(5000);
 
 	readonly maxDimensionPx = 4000;
 }

@@ -27,7 +27,17 @@ const style: SceneStyle = {
 	fontFamily: 'sans-serif',
 	referenceStrokeWidthPx: { coastline: 2, water: 1, waterway: 1, admin0: 1.5, admin1: 1, trackCasingExtra: 2 },
 	referenceCityDotRadiusPx: { largest: 4, smallest: 1.5 },
-	referenceFontSizePx: { cityLargest: 13, citySmallest: 8.5, title: 24, stats: 14, credit: 10, scaleBar: 10 }
+	referenceFontSizePx: { cityLargest: 13, citySmallest: 8.5, title: 24, stats: 14, credit: 10, scaleBar: 10 },
+	referenceMinimapPx: {
+		width: 60,
+		innerMarginPx: 4,
+		frameStroke: 1.5,
+		landStroke: 0.5,
+		adminStroke: 0.7,
+		markerStroke: 1.5,
+		markerMinSizePx: 6,
+		markerDotRadius: 3
+	}
 };
 
 function naturalEarthBasemap(): BasemapLayers {
@@ -121,6 +131,45 @@ function naturalEarthBasemap(): BasemapLayers {
 	};
 }
 
+/** A single coarse land polygon, standing in for static/basemap/world-land.json in tests. */
+function worldLandFixture(): GeoJSON.FeatureCollection {
+	return {
+		type: 'FeatureCollection',
+		features: [
+			{
+				type: 'Feature',
+				properties: {},
+				geometry: {
+					type: 'Polygon',
+					coordinates: [
+						[
+							[-10, 35],
+							[40, 35],
+							[40, 70],
+							[-10, 70],
+							[-10, 35]
+						]
+					]
+				}
+			}
+		]
+	};
+}
+
+/** A single coarse admin0 border line, standing in for static/basemap/world-admin0.json in tests. */
+function worldAdmin0Fixture(): GeoJSON.FeatureCollection {
+	return {
+		type: 'FeatureCollection',
+		features: [
+			{
+				type: 'Feature',
+				properties: {},
+				geometry: { type: 'LineString', coordinates: [[15, 35], [15, 70]] }
+			}
+		]
+	};
+}
+
 function basemapWithPlaces(
 	features: GeoJSON.Feature<GeoJSON.Point, { name: string; rank: number; size: number }>[]
 ): BasemapLayers {
@@ -148,13 +197,22 @@ const overlay: OverlaySettings = {
 	showScaleBar: true,
 	detailBias: 'rich',
 	cityLabelLanguage: 'en',
-	citySize: 10
+	citySize: 10,
+	showMinimap: false,
+	minimapPosition: 'bottom-right',
+	minimapCoverageKm: 5000
 };
 
 // Deterministic stand-in for Canvas-based measurement (unavailable under jsdom).
 const measureTextWidth = (text: string, font: { sizePx: number }) => text.length * font.sizePx * 0.5;
 
-function sceneInputAt(outputWidth: number, outputHeight: number): SceneInput {
+interface SceneInputOverrides {
+	overlay?: Partial<OverlaySettings>;
+	worldLand?: GeoJSON.FeatureCollection | null;
+	worldAdmin0?: GeoJSON.FeatureCollection | null;
+}
+
+function sceneInputAt(outputWidth: number, outputHeight: number, overrides: SceneInputOverrides = {}): SceneInput {
 	const marginPx = 20 * (outputWidth / 1000);
 	const projection = buildProjection(outputWidth, outputHeight, bbox, marginPx);
 	return {
@@ -165,14 +223,16 @@ function sceneInputAt(outputWidth: number, outputHeight: number): SceneInput {
 		visibleBbox: visibleBbox(projection, outputWidth, outputHeight),
 		basemap: naturalEarthBasemap(),
 		tracks: [track],
-		overlay,
+		overlay: { ...overlay, ...overrides.overlay },
 		style,
-		measureTextWidth
+		measureTextWidth,
+		worldLand: overrides.worldLand ?? null,
+		worldAdmin0: overrides.worldAdmin0 ?? null
 	};
 }
 
-function renderAt(outputWidth: number, outputHeight: number) {
-	const input = sceneInputAt(outputWidth, outputHeight);
+function renderAt(outputWidth: number, outputHeight: number, overrides: SceneInputOverrides = {}) {
+	const input = sceneInputAt(outputWidth, outputHeight, overrides);
 	const renderer = new SvgRenderer(outputWidth, outputHeight, input.projection);
 	composeScene(renderer, input);
 	return renderer.serialize();
@@ -261,7 +321,9 @@ describe('composeScene — layer toggles', () => {
 			tracks: [],
 			overlay: { ...overlay, showAdmin1: false, title: null, statsText: null, showCredit: false, showScaleBar: false },
 			style,
-			measureTextWidth
+			measureTextWidth,
+			worldLand: null,
+			worldAdmin0: null
 		});
 		const svg = renderer.serialize();
 		// Coastline (from land fill/stroke split) + water + waterway + admin0
@@ -283,7 +345,9 @@ describe('composeScene — layer toggles', () => {
 			tracks: [hidden],
 			overlay: { ...overlay, showAdmin1: false, title: null, statsText: null, showCredit: false, showScaleBar: false },
 			style,
-			measureTextWidth
+			measureTextWidth,
+			worldLand: null,
+			worldAdmin0: null
 		});
 		expect(renderer.serialize()).not.toContain(hidden.style.color);
 	});
@@ -302,7 +366,9 @@ describe('composeScene — layer toggles', () => {
 			tracks: [],
 			overlay: { ...overlay, showAdmin1: false, title: null, statsText: null, showCredit: false, showScaleBar: false },
 			style,
-			measureTextWidth
+			measureTextWidth,
+			worldLand: null,
+			worldAdmin0: null
 		});
 		// Only the waterway line and admin0 border should carry a stroke —
 		// the water polygon must be fill-only.
@@ -349,7 +415,9 @@ describe('composeScene — viewport culling', () => {
 			tracks: [],
 			overlay: { ...overlay, showAdmin1: false, title: null, statsText: null, showCredit: false, showScaleBar: false },
 			style,
-			measureTextWidth
+			measureTextWidth,
+			worldLand: null,
+			worldAdmin0: null
 		});
 		const urbanPaths = [...renderer.serialize().matchAll(new RegExp(`fill="${style.urbanFill}"`, 'g'))];
 		expect(urbanPaths).toHaveLength(1);
@@ -370,7 +438,9 @@ describe('composeScene — places', () => {
 			tracks: [],
 			overlay: { ...overlay, title: null, statsText: null, showCredit: false, showScaleBar: false },
 			style,
-			measureTextWidth
+			measureTextWidth,
+			worldLand: null,
+			worldAdmin0: null
 		});
 		return renderer.serialize();
 	}
@@ -399,7 +469,9 @@ describe('composeScene — places', () => {
 			tracks: [],
 			overlay: { ...overlay, citySize: 5, title: null, statsText: null, showCredit: false, showScaleBar: false },
 			style,
-			measureTextWidth
+			measureTextWidth,
+			worldLand: null,
+			worldAdmin0: null
 		});
 		const svg = renderer.serialize();
 		expect(svg).toContain('Kept');
@@ -472,6 +544,22 @@ describe('composeScene — phase composition', () => {
 		expect(svg).not.toContain('>Test Map<');
 	});
 
+	it("'minimap' phase draws only the inset panel/land/admin0, nothing from other phases", () => {
+		const input = sceneInputAt(1000, 1000, {
+			overlay: { showMinimap: true },
+			worldLand: worldLandFixture(),
+			worldAdmin0: worldAdmin0Fixture()
+		});
+		const renderer = new SvgRenderer(1000, 1000, input.projection);
+		composeScenePhase(renderer, input, 'minimap');
+
+		const svg = renderer.serialize();
+		expect(svg).toContain(`fill="${style.landFill}"`);
+		expect(svg).not.toContain('<text');
+		expect(svg).not.toContain(track.style.color);
+		expect(svg).not.toContain('Testville');
+	});
+
 	it("'text' phase draws the positioned title pill but no city labels, credit, or tracks", () => {
 		const input = sceneInputAt(1000, 1000);
 		const renderer = new SvgRenderer(1000, 1000, input.projection);
@@ -483,6 +571,63 @@ describe('composeScene — phase composition', () => {
 		expect(svg).not.toContain('© Natural Earth');
 		expect(svg).not.toContain('<circle');
 		expect(svg).not.toContain(track.style.color);
+	});
+});
+
+describe('composeScene — minimap', () => {
+	it('omits the minimap entirely when showMinimap is false', () => {
+		expect(renderAt(1000, 1000, { worldLand: worldLandFixture() })).toBe(renderAt(1000, 1000));
+	});
+
+	it('omits the minimap when worldLand has not loaded yet, even if enabled', () => {
+		expect(renderAt(1000, 1000, { overlay: { showMinimap: true } })).toBe(renderAt(1000, 1000));
+	});
+
+	it('draws a land-filled panel and a frame when enabled with worldLand present', () => {
+		const svg = renderAt(1000, 1000, { overlay: { showMinimap: true }, worldLand: worldLandFixture() });
+		expect(svg).toContain(`fill="${style.landFill}"`);
+		expect(svg).toContain(`stroke="${style.admin0Stroke}"`);
+	});
+
+	it('draws an extra admin0-stroked path when worldAdmin0 is present, on top of the frame', () => {
+		const countAdmin0Strokes = (svg: string) => (svg.match(new RegExp(`stroke="${style.admin0Stroke}"`, 'g')) ?? []).length;
+		const withoutAdmin0 = renderAt(1000, 1000, { overlay: { showMinimap: true }, worldLand: worldLandFixture() });
+		const withAdmin0 = renderAt(1000, 1000, {
+			overlay: { showMinimap: true },
+			worldLand: worldLandFixture(),
+			worldAdmin0: worldAdmin0Fixture()
+		});
+		expect(countAdmin0Strokes(withAdmin0)).toBe(countAdmin0Strokes(withoutAdmin0) + 1);
+	});
+
+	describe('scale invariant', () => {
+		function withMinimap(outputWidth: number, outputHeight: number) {
+			return renderAt(outputWidth, outputHeight, {
+				overlay: { showMinimap: true },
+				worldLand: worldLandFixture(),
+				worldAdmin0: worldAdmin0Fixture()
+			});
+		}
+		const small = withMinimap(1000, 1000);
+		const large = withMinimap(2000, 2000);
+
+		it('doubles every stroke width, including the inset frame and land outline', () => {
+			const smallWidths = numbersFor(small, 'stroke-width');
+			const largeWidths = numbersFor(large, 'stroke-width');
+			expect(largeWidths).toHaveLength(smallWidths.length);
+			smallWidths.forEach((w, i) => expect(largeWidths[i]).toBeCloseTo(w * 2, 5));
+		});
+
+		it('doubles every rect width/height, including the inset panel and marker', () => {
+			// Precision 2, not 5 like the plain-multiplication stroke-width check
+			// above: the marker rect is derived from two independently projected
+			// corners (min/max + a clamp), which accumulates a little more
+			// floating-point noise than a single `value * scale`.
+			const smallSizes = [...numbersFor(small, 'width'), ...numbersFor(small, 'height')];
+			const largeSizes = [...numbersFor(large, 'width'), ...numbersFor(large, 'height')];
+			expect(largeSizes).toHaveLength(smallSizes.length);
+			smallSizes.forEach((s, i) => expect(largeSizes[i]).toBeCloseTo(s * 2, 2));
+		});
 	});
 });
 
@@ -513,7 +658,9 @@ describe('composeScene — title background', () => {
 			tracks: [track],
 			overlay: { ...overlay, title: null, showCredit: false, showScaleBar: false, statsText: null },
 			style,
-			measureTextWidth
+			measureTextWidth,
+			worldLand: null,
+			worldAdmin0: null
 		});
 		expect(renderer.serialize()).not.toContain(`fill="${style.textHalo}"`);
 	});

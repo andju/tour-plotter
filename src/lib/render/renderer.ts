@@ -1,3 +1,5 @@
+import type { GeoProjection } from 'd3-geo';
+
 export interface PathStyle {
 	stroke?: string;
 	strokeWidthPx?: number;
@@ -10,6 +12,14 @@ export interface PathStyle {
 export interface FillStyle {
 	fill: string;
 	opacity?: number;
+}
+
+export interface RectStyle {
+	fill?: string;
+	opacity?: number;
+	/** Outline, e.g. the minimap's frame and viewport marker. */
+	stroke?: string;
+	strokeWidthPx?: number;
 }
 
 export interface Font {
@@ -40,5 +50,13 @@ export interface Renderer {
 	path(geometry: GeoJSON.Geometry, style: PathStyle): void;
 	circle(xy: [number, number], radiusPx: number, style: FillStyle): void;
 	text(xy: [number, number], value: string, style: TextStyle): void;
-	rect(x: number, y: number, w: number, h: number, style: FillStyle): void;
+	rect(x: number, y: number, w: number, h: number, style: RectStyle): void;
+	/**
+	 * A renderer drawing to the same output but through a different
+	 * projection — used by the minimap inset, which needs its own
+	 * lon/lat -> pixel mapping independent of the main map's. Only `path`
+	 * (and any GeoProjection-backed clipping) differs; `circle`/`text`/`rect`
+	 * already take raw pixel coordinates and work unchanged on the result.
+	 */
+	withProjection(projection: GeoProjection): Renderer;
 }

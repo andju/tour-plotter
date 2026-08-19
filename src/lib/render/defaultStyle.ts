@@ -33,5 +33,15 @@ export const DEFAULT_SCENE_STYLE: SceneStyle = {
 		stats: 14,
 		credit: 10,
 		scaleBar: 11
+	},
+	referenceMinimapPx: {
+		width: 180,
+		innerMarginPx: 6,
+		frameStroke: 1.5,
+		landStroke: 0.5,
+		adminStroke: 0.8,
+		markerStroke: 1.5,
+		markerMinSizePx: 6,
+		markerDotRadius: 3
 	}
 };

@@ -1,7 +1,7 @@
 import { geoPath } from 'd3-geo';
 import { describe, expect, it } from 'vitest';
 import type { Bbox } from './bbox';
-import { buildProjection, visibleBbox } from './projection';
+import { buildProjection, projectedAspect, visibleBbox } from './projection';
 
 const berlin: Bbox = [13.0, 52.0, 13.5, 52.5];
 
@@ -130,5 +130,41 @@ describe('visibleBbox', () => {
 		// A visible range that itself straddles +-180 must report
 		// minLon > maxLon, matching this app's Bbox convention.
 		expect(minLon).toBeGreaterThan(maxLon);
+	});
+});
+
+describe('projectedAspect', () => {
+	it('agrees with the aspect ratio buildProjection actually fits (equatorial bbox)', () => {
+		// A tall, narrow bbox at the equator: no latitude distortion to speak
+		// of, so its projected aspect should sit close to its plain lon/lat
+		// aspect ratio (height 10deg / width 1deg = 10).
+		const tallEquatorial: Bbox = [0, -5, 1, 5];
+		expect(projectedAspect(tallEquatorial)).toBeCloseTo(10, 0);
+	});
+
+	it('reports a taller aspect for a bbox nearer the pole than an identical-span bbox at the equator', () => {
+		// Same lon/lat span (10deg x 10deg) at two latitudes — Mercator's
+		// poleward y-stretch should make the high-latitude one measure taller.
+		const equatorial: Bbox = [0, -5, 10, 5];
+		const highLatitude: Bbox = [0, 55, 10, 65];
+		expect(projectedAspect(highLatitude)).toBeGreaterThan(projectedAspect(equatorial));
+	});
+
+	it('is self-consistent with buildProjection: fitting a canvas of that aspect ratio binds both axes equally', () => {
+		const bbox: Bbox = [10, 40, 11, 60];
+		const aspect = projectedAspect(bbox);
+		const width = 800;
+		const height = width * aspect;
+		const margin = 0;
+
+		const corners = projectedCorners(bbox, width, height, margin);
+		const xs = corners.map((c) => c[0]);
+		const ys = corners.map((c) => c[1]);
+
+		// With a canvas cut exactly to the bbox's own projected aspect ratio,
+		// neither axis has slack — both the horizontal and vertical spans
+		// should reach (within rounding) the full width/height.
+		expect(Math.max(...xs) - Math.min(...xs)).toBeCloseTo(width, 0);
+		expect(Math.max(...ys) - Math.min(...ys)).toBeCloseTo(height, 0);
 	});
 });

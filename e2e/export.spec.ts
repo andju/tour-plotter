@@ -113,6 +113,40 @@ test.describe('GPX export', () => {
 		expect(titledDimensions).toEqual({ width: 1000, height: 1000 });
 	});
 
+	test('enabling the minimap never changes the exported PNG dimensions', async ({ page }) => {
+		await loadFixtureTrack(page);
+		await setDimensions(page, 1000, 1000);
+
+		await page.getByLabel('Minimap', { exact: true }).check();
+
+		// The minimap is an opaque panel drawn over the map, not something
+		// that grows the canvas, so the export must still come back at
+		// exactly the size the user asked for.
+		const downloadPromise = page.waitForEvent('download');
+		await page.getByText('Export PNG').click();
+		const dimensions = pngDimensions(readFileSync(await (await downloadPromise).path()));
+		expect(dimensions).toEqual({ width: 1000, height: 1000 });
+	});
+
+	test('an SVG exported with the minimap on contains more paths than one without', async ({ page }) => {
+		await loadFixtureTrack(page);
+		await setDimensions(page, 1000, 1000);
+
+		const baselineDownload = page.waitForEvent('download');
+		await page.getByText('Export SVG').click();
+		const baselineSvg = readFileSync(await (await baselineDownload).path(), 'utf8');
+		const baselinePaths = [...baselineSvg.matchAll(/<path/g)].length;
+
+		await page.getByLabel('Minimap', { exact: true }).check();
+
+		const minimapDownload = page.waitForEvent('download');
+		await page.getByText('Export SVG').click();
+		const minimapSvg = readFileSync(await (await minimapDownload).path(), 'utf8');
+		const minimapPaths = [...minimapSvg.matchAll(/<path/g)].length;
+
+		expect(minimapPaths).toBeGreaterThan(baselinePaths);
+	});
+
 	test('exporting twice in one session does not error', async ({ page }) => {
 		await loadFixtureTrack(page);
 

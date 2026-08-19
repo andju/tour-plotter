@@ -6,6 +6,7 @@ import type { Bbox } from '../geo/bbox';
 import { trackToGeoJSON, type Track } from '../gpx/types';
 import { visibleAt, zoomForProjection, type DetailBias } from './detail';
 import { placeLabels, type LabelCandidate } from './labels';
+import { buildInsetProjection, minimapBbox, minimapBox, minimapMarker } from './minimap';
 import { computeScaleBar } from './scaleBar';
 import type { Font, PathStyle, Renderer } from './renderer';
 
@@ -52,6 +53,18 @@ export interface SceneStyle {
 		credit: number;
 		scaleBar: number;
 	};
+	referenceMinimapPx: {
+		/** The inset's width; its height follows the framed extent's own aspect ratio (see minimap.ts's projectedAspect). */
+		width: number;
+		innerMarginPx: number;
+		frameStroke: number;
+		landStroke: number;
+		adminStroke: number;
+		markerStroke: number;
+		/** Below this, the projected viewport is drawn as a dot instead of an outlined rect. */
+		markerMinSizePx: number;
+		markerDotRadius: number;
+	};
 }
 
 /**
@@ -62,12 +75,17 @@ export interface SceneStyle {
  */
 const TEXT_BAND_LINE_HEIGHT = 1.5;
 
-/** Where the title pill anchors, as a corner/edge of the canvas. */
-export type TitlePosition = 'top-left' | 'top-center' | 'top-right' | 'bottom-left' | 'bottom-center' | 'bottom-right';
+/**
+ * Where an overlay panel (the title pill, the minimap) anchors, as a
+ * corner/edge of the canvas. Shared between the two rather than each having
+ * its own type, since the anchor arithmetic (see drawTitle/drawMinimap) is
+ * identical.
+ */
+export type OverlayPosition = 'top-left' | 'top-center' | 'top-right' | 'bottom-left' | 'bottom-center' | 'bottom-right';
 
 export interface OverlaySettings {
 	title: string | null;
-	titlePosition: TitlePosition;
+	titlePosition: OverlayPosition;
 	statsText: string | null;
 	showAdmin1: boolean;
 	showCredit: boolean;
@@ -77,6 +95,10 @@ export interface OverlaySettings {
 	cityLabelLanguage: string;
 	/** City-size slider value (0-CITY_SIZE_MAX), independent of detailBias — see basemap/placeSize.ts. */
 	citySize: number;
+	showMinimap: boolean;
+	minimapPosition: OverlayPosition;
+	/** Radius (in km) the minimap frames around the tour, before the ±84° latitude clamp — see minimap.ts's minimapBbox. */
+	minimapCoverageKm: number;
 }
 
 export interface SceneInput {
@@ -98,20 +120,39 @@ export interface SceneInput {
 	overlay: OverlaySettings;
 	style: SceneStyle;
 	measureTextWidth: (value: string, font: Font) => number;
+	/**
+	 * Coarse world land/water, source-independent (unlike `basemap`, which is
+	 * per-source) — backs the minimap inset, which needs land outlines even
+	 * in OSM mode, where `basemap.land` is null. Null until the minimap is
+	 * first enabled (see worldLand.ts) or when it's off entirely.
+	 */
+	worldLand: GeoJSON.FeatureCollection | null;
+	/**
+	 * Coarse world admin0 borders, the minimap's counterpart to `worldLand` —
+	 * same source-independence rationale (OSM tiles carry no admin0 layer),
+	 * same null-until-loaded/off lifecycle. See worldAdmin0.ts.
+	 */
+	worldAdmin0: GeoJSON.FeatureCollection | null;
 }
 
 /**
- * The four ordered groups `composeScene` draws in. Split out so the preview
- * can cache the two phases a per-track style edit (colour/width/opacity)
- * never touches — `basemap` and `overlay` — as bitmaps, and re-run only
- * `tracks` on a slider tick. See `layerCache.ts`. `text` (the title pill) is
- * split out from `overlay` for the same reason but goes further: the preview
- * draws it on its own stacked canvas, live, on every keystroke, because
- * unlike `overlay` (city label placement — expensive) it's cheap enough not
- * to need caching at all. See PreviewCanvas.svelte.
+ * The ordered groups `composeScene` draws in. Split out so the preview can
+ * cache the phases a per-track style edit (colour/width/opacity) never
+ * touches — `basemap`, `overlay` and `minimap` — as separate bitmaps, and
+ * re-run only `tracks` on a slider tick. See `layerCache.ts`. `minimap` is
+ * its own phase (not folded into `overlay`) because it's driven by an
+ * entirely different set of settings (position/coverage, not city
+ * size/language) — keying one bitmap on the union of both would bust it on
+ * changes that don't affect it. `text` (the title pill) is split out for the
+ * same reason but goes further: the preview draws it on its own stacked
+ * canvas, live, on every keystroke, because unlike `overlay`/`minimap` (city
+ * label placement, a second projection — both expensive) it's cheap enough
+ * not to need caching at all. See PreviewCanvas.svelte. `minimap` is drawn
+ * above `overlay` (city labels) so its opaque panel occludes them, and below
+ * `text` so the title stays on top of everything.
  */
-export type ScenePhase = 'basemap' | 'tracks' | 'overlay' | 'text';
-export const SCENE_PHASES: readonly ScenePhase[] = ['basemap', 'tracks', 'overlay', 'text'];
+export type ScenePhase = 'basemap' | 'tracks' | 'overlay' | 'minimap' | 'text';
+export const SCENE_PHASES: readonly ScenePhase[] = ['basemap', 'tracks', 'overlay', 'minimap', 'text'];
 
 /**
  * Draws the full scene into `renderer`. Deliberately takes the Renderer
@@ -243,6 +284,11 @@ export function composeScenePhase(renderer: Renderer, input: SceneInput, phase: 
 				opacity: track.style.opacity
 			});
 		}
+		return;
+	}
+
+	if (phase === 'minimap') {
+		drawMinimap(renderer, input, scale);
 		return;
 	}
 
@@ -467,4 +513,74 @@ function drawTitle(renderer: Renderer, input: SceneInput, scale: number): void {
 	const x = anchor === 'start' ? marginPx : anchor === 'end' ? outputWidth - marginPx : outputWidth / 2;
 
 	drawLabelWithBackground(renderer, input, [x, y], overlay.title, font, anchor);
+}
+
+/**
+ * The minimap: an opaque panel anchored to `overlay.minimapPosition` (same
+ * corner/edge vocabulary as the title), showing coarse world land at a much
+ * larger extent than the main map, plus a marker for where the main map's
+ * own visible extent falls inside it. Drawn from `worldLand` — source-
+ * independent coarse data — rather than `basemap`, since OSM mode's
+ * `basemap.land` is null and the inset needs land outlines either way.
+ * Returns early with no `worldLand` (not yet loaded, or the minimap is off)
+ * rather than drawing an empty panel.
+ */
+function drawMinimap(renderer: Renderer, input: SceneInput, scale: number): void {
+	const { overlay, style, worldLand, worldAdmin0, outputWidth, outputHeight, marginPx, visibleBbox: mapVisibleBbox } = input;
+	if (!overlay.showMinimap || !worldLand) return;
+
+	const sizes = style.referenceMinimapPx;
+	const widthPx = sizes.width * scale;
+	const innerMarginPx = sizes.innerMarginPx * scale;
+
+	const bbox = minimapBbox(mapVisibleBbox, overlay.minimapCoverageKm);
+	const box = minimapBox(overlay.minimapPosition, outputWidth, outputHeight, marginPx, widthPx, bbox);
+
+	// Panel background first (stands in for water — this app's coarse land
+	// data has no matching water polygon), then land clipped to the box.
+	renderer.rect(box.x, box.y, box.w, box.h, { fill: style.backgroundFill });
+
+	const insetProjection = buildInsetProjection(box, bbox, innerMarginPx);
+	const insetRenderer = renderer.withProjection(insetProjection);
+	const landStyle: PathStyle = {
+		fill: style.landFill,
+		stroke: style.coastlineStroke,
+		strokeWidthPx: sizes.landStroke * scale
+	};
+	for (const feature of worldLand.features) {
+		insetRenderer.path(feature.geometry, landStyle);
+	}
+
+	if (worldAdmin0) {
+		const adminStyle: PathStyle = {
+			stroke: style.admin0Stroke,
+			strokeWidthPx: sizes.adminStroke * scale
+		};
+		for (const feature of worldAdmin0.features) {
+			insetRenderer.path(feature.geometry, adminStyle);
+		}
+	}
+
+	// The "you are here" marker: the main map's own visible extent,
+	// projected through the inset's projection — a rect when it measures
+	// large enough to read as one, a dot otherwise (e.g. a short track
+	// inside a continent-wide inset).
+	const marker = minimapMarker(insetProjection, mapVisibleBbox, box, sizes.markerMinSizePx * scale);
+	if (marker.kind === 'rect') {
+		renderer.rect(marker.x, marker.y, marker.w, marker.h, {
+			fill: style.textHalo,
+			opacity: 0.35,
+			stroke: style.textColor,
+			strokeWidthPx: sizes.markerStroke * scale
+		});
+	} else {
+		renderer.circle(marker.xy, sizes.markerDotRadius * scale, { fill: style.textColor });
+	}
+
+	// Frame drawn last, on top of the marker, so it always reads as a crisp
+	// panel edge rather than being crossed by a marker rect that touches it.
+	renderer.rect(box.x, box.y, box.w, box.h, {
+		stroke: style.admin0Stroke,
+		strokeWidthPx: sizes.frameStroke * scale
+	});
 }

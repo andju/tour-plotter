@@ -17,7 +17,7 @@ npm run fetch-basemap                               # re-fetch static/basemap/*.
 
 ### The rendering core
 
-Everything funnels through one function: `composeScene(renderer, input)` in `src/lib/render/scene.ts`. It's plain, ordered imperative code — draw background, land, admin1 borders (if enabled), admin0 borders, tracks, city dots + labels, overlay text — that calls methods on a `Renderer` (`src/lib/render/renderer.ts`). There are two implementations, `CanvasRenderer` and `SvgRenderer`, and **both call the exact same `composeScene`**. Neither has its own copy of the layout logic, which is what makes PNG/SVG output stay in sync automatically rather than something that has to be kept in sync by hand.
+Everything funnels through one function: `composeScene(renderer, input)` in `src/lib/render/scene.ts`. It's plain, ordered imperative code — draw background, land, admin1 borders (if enabled), admin0 borders, tracks, city dots + labels, minimap inset, overlay text — that calls methods on a `Renderer` (`src/lib/render/renderer.ts`). There are two implementations, `CanvasRenderer` and `SvgRenderer`, and **both call the exact same `composeScene`**. Neither has its own copy of the layout logic, which is what makes PNG/SVG output stay in sync automatically rather than something that has to be kept in sync by hand.
 
 The live preview and the actual export are the same code path at different resolutions — both go through `buildSceneInput()` (`src/lib/render/buildSceneInput.ts`), which turns app state (tracks, settings, basemap) into a `SceneInput`. There's no separate "preview mode."
 
@@ -31,6 +31,16 @@ The live preview and the actual export are the same code path at different resol
 2. `geoPath` treats ring edges as great-circle arcs. A rectangle's top/bottom edges are lines of constant latitude, not great circles, so a wide/flat bbox's edges bulge poleward between corners and report a taller (more zoomed-out) extent than the bbox actually is.
 
 `projection.ts` instead samples points directly along the bbox's parallels/meridians and computes scale/translate by hand — no Polygon ring involved, so neither failure mode applies. If you're tempted to "simplify" this back to `fitExtent`, don't — re-read that header comment first.
+
+### Minimap (`src/lib/render/minimap.ts`)
+
+The minimap inset is its own `ScenePhase` (`'minimap'`, between `'overlay'` and `'text'`) with its own cache key and bitmap in `layerCache.ts` — a fourth cached layer alongside `basemap`/`overlay`, not folded into either, so toggling it or dragging its coverage slider never busts the polygon-heavy `basemap` bitmap or the label-placement-heavy `overlay` bitmap, and vice versa.
+
+It needs a *second, independent* projection (world/continental extent, not the main map's), which `Renderer` didn't support until this feature — hence `Renderer.withProjection(projection)`, implemented by handing `CanvasRenderer` a fresh instance over the same `ctx` and by `SvgRenderer` sharing its `elements` array with a child instance (so a sub-renderer's output lands in the same document in draw order rather than a separate buffer needing a merge step). `buildProjection` (`geo/projection.ts`) is reused verbatim for the inset — it's stateless and takes its own size, so a second call is exactly as safe as the first; it's just post-translated to the inset's box position and `.clipExtent()`-ed to it.
+
+Coarse land data (`static/basemap/world-land.json`, 110m Natural Earth, ~90KB) is loaded separately from `basemap/loadBasemap.ts`'s per-source data (see `basemap/worldLand.ts`) because it's needed even in OSM mode, whose vector tiles carry no land polygon at all (ocean arrives as a `water` feature — see `BasemapLayers.baseFill`'s doc comment). It's fetched lazily, only once the minimap is switched on.
+
+The minimap's own framing bbox is `expandToMinimumCoverage(mapVisibleBbox, coverageKm)` (the same helper the main map's coverage floor uses), with latitudes then clamped to ±84°. That clamp isn't cosmetic: `buildProjection` probes bbox corners through a raw `geoMercator`, and Mercator's `y` diverges to infinity at the poles — an unclamped ±90° corner at the top of the coverage slider would poison the min/max scan into a `NaN` scale. There's no separate "world" mode; the clamp alone provides it at the slider's top end.
 
 ### GPX layer (`src/lib/gpx/`)
 

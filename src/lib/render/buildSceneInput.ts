@@ -8,7 +8,7 @@ import type { Track } from '../gpx/types';
 import { zoomForProjection, type DetailBias } from './detail';
 import { measureTextWidth } from './measure';
 import { sceneStyleFor, type MapStyleId } from './palettes';
-import type { SceneInput, TitlePosition } from './scene';
+import type { OverlayPosition, SceneInput } from './scene';
 
 /** Margins are defined at this reference width, like everything else in SceneStyle. */
 const REFERENCE_MARGIN_PX = 40;
@@ -76,9 +76,16 @@ export interface BuildSceneOptions {
 	showScaleBar: boolean;
 	showStats: boolean;
 	title: string;
-	titlePosition: TitlePosition;
+	titlePosition: OverlayPosition;
 	cityLabelLanguage: string;
 	citySize: number;
+	showMinimap: boolean;
+	minimapPosition: OverlayPosition;
+	minimapCoverageKm: number;
+	/** Coarse world land backing the minimap inset — see SceneInput's doc comment. */
+	worldLand: GeoJSON.FeatureCollection | null;
+	/** Coarse world admin0 borders backing the minimap inset — see SceneInput's doc comment. */
+	worldAdmin0: GeoJSON.FeatureCollection | null;
 }
 
 /**
@@ -109,9 +116,14 @@ export function buildSceneInput(opts: BuildSceneOptions): SceneInput {
 			showScaleBar: opts.showScaleBar,
 			detailBias: opts.detailBias,
 			cityLabelLanguage: opts.cityLabelLanguage,
-			citySize: opts.citySize
+			citySize: opts.citySize,
+			showMinimap: opts.showMinimap,
+			minimapPosition: opts.minimapPosition,
+			minimapCoverageKm: opts.minimapCoverageKm
 		},
 		style: sceneStyleFor(opts.mapStyle),
-		measureTextWidth
+		measureTextWidth,
+		worldLand: opts.worldLand,
+		worldAdmin0: opts.worldAdmin0
 	};
 }

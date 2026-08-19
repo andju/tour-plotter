@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BasemapLayers } from '../basemap/types';
 import { buildProjection, visibleBbox } from '../geo/projection';
-import { basemapLayerKey, overlayLayerKey } from './layerCache';
+import { basemapLayerKey, minimapLayerKey, overlayLayerKey } from './layerCache';
 import type { OverlaySettings, SceneInput, SceneStyle } from './scene';
 
 const bbox: [number, number, number, number] = [13.0, 52.0, 13.5, 52.5];
@@ -25,7 +25,17 @@ const style: SceneStyle = {
 	fontFamily: 'sans-serif',
 	referenceStrokeWidthPx: { coastline: 2, water: 1, waterway: 1, admin0: 1.5, admin1: 1, trackCasingExtra: 2 },
 	referenceCityDotRadiusPx: { largest: 4, smallest: 1.5 },
-	referenceFontSizePx: { cityLargest: 13, citySmallest: 8.5, title: 24, stats: 14, credit: 10, scaleBar: 10 }
+	referenceFontSizePx: { cityLargest: 13, citySmallest: 8.5, title: 24, stats: 14, credit: 10, scaleBar: 10 },
+	referenceMinimapPx: {
+		width: 60,
+		innerMarginPx: 4,
+		frameStroke: 1.5,
+		landStroke: 0.5,
+		adminStroke: 0.7,
+		markerStroke: 1.5,
+		markerMinSizePx: 6,
+		markerDotRadius: 3
+	}
 };
 
 function emptyBasemap(): BasemapLayers {
@@ -53,7 +63,10 @@ const overlay: OverlaySettings = {
 	showScaleBar: true,
 	detailBias: 'rich',
 	cityLabelLanguage: 'en',
-	citySize: 5
+	citySize: 5,
+	showMinimap: false,
+	minimapPosition: 'bottom-right',
+	minimapCoverageKm: 5000
 };
 
 const measureTextWidth = (text: string, font: { sizePx: number }) => text.length * font.sizePx * 0.5;
@@ -78,8 +91,18 @@ function sceneInput(overrides: Partial<SceneInput> = {}): SceneInput {
 		overlay,
 		style,
 		measureTextWidth,
+		worldLand: null,
+		worldAdmin0: null,
 		...overrides
 	};
+}
+
+function worldLandFixture(): GeoJSON.FeatureCollection {
+	return { type: 'FeatureCollection', features: [] };
+}
+
+function worldAdmin0Fixture(): GeoJSON.FeatureCollection {
+	return { type: 'FeatureCollection', features: [] };
 }
 
 describe('basemapLayerKey', () => {
@@ -121,6 +144,16 @@ describe('basemapLayerKey', () => {
 		const edited = sceneInput({
 			...base,
 			overlay: { ...overlay, citySize: 10, cityLabelLanguage: 'de', title: 'Other Title', statsText: '20 km' }
+		});
+		expect(basemapLayerKey(edited)).toBe(basemapLayerKey(base));
+	});
+
+	it('is unaffected by any minimap setting — the whole point of giving it its own cached layer', () => {
+		const base = sceneInput();
+		const edited = sceneInput({
+			...base,
+			overlay: { ...overlay, showMinimap: true, minimapPosition: 'top-left', minimapCoverageKm: 500 },
+			worldLand: worldLandFixture()
 		});
 		expect(basemapLayerKey(edited)).toBe(basemapLayerKey(base));
 	});
@@ -186,6 +219,16 @@ describe('overlayLayerKey', () => {
 		expect(overlayLayerKey(edited)).toBe(overlayLayerKey(base));
 	});
 
+	it('is unaffected by any minimap setting — the whole point of giving it its own cached layer', () => {
+		const base = sceneInput();
+		const edited = sceneInput({
+			...base,
+			overlay: { ...overlay, showMinimap: true, minimapPosition: 'top-left', minimapCoverageKm: 500 },
+			worldLand: worldLandFixture()
+		});
+		expect(overlayLayerKey(edited)).toBe(overlayLayerKey(base));
+	});
+
 	it('changes for a new projection instance', () => {
 		const base = sceneInput();
 		const edited = sceneInput({ ...base, projection: buildProjection(1000, 1000, bbox, 20) });
@@ -202,5 +245,69 @@ describe('overlayLayerKey', () => {
 		const base = sceneInput();
 		const edited = sceneInput({ ...base, style: { ...style } });
 		expect(overlayLayerKey(edited)).not.toBe(overlayLayerKey(base));
+	});
+});
+
+describe('minimapLayerKey', () => {
+	it('is unchanged by per-track style edits', () => {
+		const base = sceneInput();
+		const edited = sceneInput({
+			basemap: base.basemap,
+			projection: base.projection,
+			tracks: [{ ...base.tracks[0], style: { color: '#00ff00', widthPx: 9, opacity: 0.2, visible: true } }]
+		});
+
+		expect(minimapLayerKey(edited)).toBe(minimapLayerKey(base));
+	});
+
+	it('changes when showMinimap toggles', () => {
+		const base = sceneInput();
+		const edited = sceneInput({ ...base, overlay: { ...overlay, showMinimap: true } });
+		expect(minimapLayerKey(edited)).not.toBe(minimapLayerKey(base));
+	});
+
+	it('changes when minimapPosition changes', () => {
+		const base = sceneInput({ overlay: { ...overlay, showMinimap: true } });
+		const edited = sceneInput({ ...base, overlay: { ...overlay, showMinimap: true, minimapPosition: 'top-left' } });
+		expect(minimapLayerKey(edited)).not.toBe(minimapLayerKey(base));
+	});
+
+	it('changes when minimapCoverageKm changes', () => {
+		const base = sceneInput({ overlay: { ...overlay, showMinimap: true } });
+		const edited = sceneInput({ ...base, overlay: { ...overlay, showMinimap: true, minimapCoverageKm: 500 } });
+		expect(minimapLayerKey(edited)).not.toBe(minimapLayerKey(base));
+	});
+
+	it('is unaffected by showAdmin1, detailBias, citySize or the title', () => {
+		const base = sceneInput();
+		const edited = sceneInput({
+			...base,
+			overlay: { ...overlay, showAdmin1: false, detailBias: 'minimal', citySize: 10, title: 'Other Title' }
+		});
+		expect(minimapLayerKey(edited)).toBe(minimapLayerKey(base));
+	});
+
+	it('changes for a new worldLand object', () => {
+		const base = sceneInput({ overlay: { ...overlay, showMinimap: true }, worldLand: worldLandFixture() });
+		const edited = sceneInput({ ...base, worldLand: worldLandFixture() });
+		expect(minimapLayerKey(edited)).not.toBe(minimapLayerKey(base));
+	});
+
+	it('changes for a new worldAdmin0 object', () => {
+		const base = sceneInput({ overlay: { ...overlay, showMinimap: true }, worldAdmin0: worldAdmin0Fixture() });
+		const edited = sceneInput({ ...base, worldAdmin0: worldAdmin0Fixture() });
+		expect(minimapLayerKey(edited)).not.toBe(minimapLayerKey(base));
+	});
+
+	it('changes for a new projection instance', () => {
+		const base = sceneInput();
+		const edited = sceneInput({ ...base, projection: buildProjection(1000, 1000, bbox, 20) });
+		expect(minimapLayerKey(edited)).not.toBe(minimapLayerKey(base));
+	});
+
+	it('changes for a new style object (e.g. a map style switch)', () => {
+		const base = sceneInput();
+		const edited = sceneInput({ ...base, style: { ...style } });
+		expect(minimapLayerKey(edited)).not.toBe(minimapLayerKey(base));
 	});
 });

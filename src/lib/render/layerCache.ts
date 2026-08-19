@@ -4,10 +4,13 @@ import { composeScenePhase, type SceneInput } from './scene';
 export interface CachedLayers {
 	basemapKey: string;
 	overlayKey: string;
+	minimapKey: string;
 	/** The 'basemap' phase, composited first. */
 	below: HTMLCanvasElement;
-	/** The 'overlay' phase, composited last (city labels, scale bar, credit). */
+	/** The 'overlay' phase, composited after 'tracks' (city labels, scale bar, credit). */
 	above: HTMLCanvasElement;
+	/** The 'minimap' phase, composited last of the three cached bitmaps (title still follows, live). */
+	inset: HTMLCanvasElement;
 }
 
 // Cheap stable ids for objects that can't be stringified into the key
@@ -80,6 +83,31 @@ export function overlayLayerKey(input: SceneInput): string {
 }
 
 /**
+ * Identifies everything the 'minimap' phase reads. Kept separate from
+ * overlayLayerKey (and therefore its own bitmap) so toggling the minimap, or
+ * dragging its coverage slider, never busts the city-label/scale-bar/credit
+ * bitmap, and vice versa — the two are driven by entirely disjoint settings.
+ * `worldLand` is source-independent coarse data (see SceneInput's doc
+ * comment), not `basemap`, so a basemap-source switch alone doesn't bust
+ * this cache either.
+ */
+export function minimapLayerKey(input: SceneInput): string {
+	const { outputWidth, outputHeight, marginPx, projection, overlay, style, worldLand, worldAdmin0 } = input;
+	return [
+		outputWidth,
+		outputHeight,
+		marginPx,
+		identityToken(projection),
+		worldLand ? identityToken(worldLand) : null,
+		worldAdmin0 ? identityToken(worldAdmin0) : null,
+		identityToken(style),
+		overlay.showMinimap,
+		overlay.minimapPosition,
+		overlay.minimapCoverageKm
+	].join('|');
+}
+
+/**
  * Reuses `previous` when its dimensions still match, so a drag doesn't churn
  * multi-megabyte buffers. Reports whether the bitmap was cleared — assigning
  * to canvas.width/height resets it, so a resized canvas must be re-rendered
@@ -102,20 +130,23 @@ function sizedCanvas(
 }
 
 /**
- * Renders the 'basemap' and 'overlay' phases into two offscreen bitmaps,
- * reusing `previous`'s canvases when their dimensions still match so a drag
- * doesn't churn multi-megabyte buffers on every tick, and re-rendering only
- * whichever phase's key actually changed — a city-size or label-language
- * edit touches only 'overlay', not the polygon-heavy 'basemap' phase. The
- * caller composites these with a live 'tracks' phase drawn in between — see
+ * Renders the 'basemap', 'overlay' and 'minimap' phases into three offscreen
+ * bitmaps, reusing `previous`'s canvases when their dimensions still match so
+ * a drag doesn't churn multi-megabyte buffers on every tick, and
+ * re-rendering only whichever phase's key actually changed — a minimap
+ * position/coverage edit touches only 'minimap', not the polygon-heavy
+ * 'basemap' phase or the label-placement-heavy 'overlay' phase. The caller
+ * composites these with a live 'tracks' phase drawn in between — see
  * PreviewCanvas.svelte.
  */
 export function renderCachedLayers(input: SceneInput, previous: CachedLayers | null): CachedLayers {
 	const basemapKey = basemapLayerKey(input);
 	const overlayKey = overlayLayerKey(input);
+	const minimapKey = minimapLayerKey(input);
 
 	const { canvas: below, cleared: belowCleared } = sizedCanvas(previous?.below, input.outputWidth, input.outputHeight);
 	const { canvas: above, cleared: aboveCleared } = sizedCanvas(previous?.above, input.outputWidth, input.outputHeight);
+	const { canvas: inset, cleared: insetCleared } = sizedCanvas(previous?.inset, input.outputWidth, input.outputHeight);
 
 	if (!previous || belowCleared || previous.basemapKey !== basemapKey) {
 		const belowCtx = below.getContext('2d');
@@ -131,5 +162,12 @@ export function renderCachedLayers(input: SceneInput, previous: CachedLayers | n
 		composeScenePhase(new CanvasRenderer(aboveCtx, input.projection), input, 'overlay');
 	}
 
-	return { basemapKey, overlayKey, below, above };
+	if (!previous || insetCleared || previous.minimapKey !== minimapKey) {
+		const insetCtx = inset.getContext('2d');
+		if (!insetCtx) throw new Error('2D canvas context unavailable');
+		insetCtx.clearRect(0, 0, input.outputWidth, input.outputHeight);
+		composeScenePhase(new CanvasRenderer(insetCtx, input.projection), input, 'minimap');
+	}
+
+	return { basemapKey, overlayKey, minimapKey, below, above, inset };
 }
