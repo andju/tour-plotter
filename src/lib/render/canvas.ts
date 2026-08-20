@@ -39,6 +39,29 @@ export class CanvasRenderer implements Renderer {
 		this.ctx.arc(xy[0], xy[1], radiusPx, 0, 2 * Math.PI);
 		this.ctx.fillStyle = style.fill;
 		this.ctx.fill();
+		if (style.stroke) {
+			this.ctx.strokeStyle = style.stroke;
+			this.ctx.lineWidth = style.strokeWidthPx ?? 1;
+			this.ctx.stroke();
+		}
+		this.ctx.restore();
+	}
+
+	polygon(points: [number, number][], style: FillStyle): void {
+		if (points.length === 0) return;
+		this.ctx.save();
+		this.ctx.globalAlpha = style.opacity ?? 1;
+		this.ctx.beginPath();
+		this.ctx.moveTo(points[0][0], points[0][1]);
+		for (const [x, y] of points.slice(1)) this.ctx.lineTo(x, y);
+		this.ctx.closePath();
+		this.ctx.fillStyle = style.fill;
+		this.ctx.fill();
+		if (style.stroke) {
+			this.ctx.strokeStyle = style.stroke;
+			this.ctx.lineWidth = style.strokeWidthPx ?? 1;
+			this.ctx.stroke();
+		}
 		this.ctx.restore();
 	}
 

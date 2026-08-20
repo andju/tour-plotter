@@ -89,4 +89,39 @@ describe('placeLabels', () => {
 
 		expect(placed.map((p) => p.id)).toEqual(['big']);
 	});
+
+	it('offsets the label past the marker footprint, not just the anchor point', () => {
+		const candidates: LabelCandidate[] = [
+			{ id: 'a', xy: [50, 50], text: 'City', priority: 0, fontSizePx: FONT_SIZE, anchorRadiusPx: 30 }
+		];
+		const [placed] = placeLabels(candidates, measure, CANVAS.width, CANVAS.height);
+
+		expect(placed.textXy[0]).toBeGreaterThanOrEqual(50 + 30);
+	});
+
+	it('drops a lower-priority label that would land on a higher-priority place\'s marker', () => {
+		const candidates: LabelCandidate[] = [
+			{ id: 'big', xy: [10, 50], text: 'Big', priority: 0, fontSizePx: FONT_SIZE, anchorRadiusPx: 40 },
+			// Anchored far from 'big', but its own right-offset label box lands on big's oversized marker footprint.
+			{ id: 'other', xy: [60, 50], text: 'Other', priority: 1, fontSizePx: FONT_SIZE }
+		];
+
+		const placed = placeLabels(candidates, measure, CANVAS.width, CANVAS.height);
+
+		expect(placed.map((p) => p.id)).toEqual(['big']);
+	});
+
+	it('does not let a lower-priority place\'s marker block a higher-priority place\'s own label', () => {
+		// A tiny, unimportant marker sitting exactly where the important place's label would go —
+		// e.g. a capital's own suburb. Since it's processed after the important place, its
+		// footprint isn't reserved yet when the important place's label is placed.
+		const candidates: LabelCandidate[] = [
+			{ id: 'capital', xy: [10, 50], text: 'Capital', priority: 0, fontSizePx: FONT_SIZE, anchorRadiusPx: 5 },
+			{ id: 'suburb', xy: [30, 50], text: '', priority: 99, fontSizePx: FONT_SIZE, anchorRadiusPx: 20 }
+		];
+
+		const placed = placeLabels(candidates, measure, CANVAS.width, CANVAS.height);
+
+		expect(placed.map((p) => p.id)).toContain('capital');
+	});
 });

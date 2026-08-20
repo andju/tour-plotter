@@ -7,6 +7,8 @@ export interface LabelCandidate {
 	priority: number;
 	/** Already scaled to the output resolution, like every other length in SceneStyle. */
 	fontSizePx: number;
+	/** The marker's own footprint at `xy` (see placeSymbol.ts's `anchorRadiusPx`) — reserved so no label is placed across another place's symbol, and the label offset clears it. 0 (a point marker) by default. */
+	anchorRadiusPx?: number;
 }
 
 export interface PlacedLabel {
@@ -33,6 +35,15 @@ export interface PlacedLabel {
  * (already scaled to the output resolution by the caller) rather than fixed
  * pixel constants, so label spacing scales with everything else instead of
  * looking proportionally cramped at large export sizes.
+ *
+ * Each candidate's own marker footprint (`anchorRadiusPx`) is reserved as a
+ * box at the same point it's reached in priority order — right before that
+ * candidate's own label is attempted, not for every candidate up front. A
+ * candidate's offset already clears its own just-reserved footprint (see
+ * below), so this never blocks a place from labelling itself; reserving
+ * every footprint up front, before priority order is applied, would instead
+ * let a cluster of minor, low-priority places (e.g. a capital's own nearby
+ * suburbs) silently block the capital's own label.
  */
 export function placeLabels(
 	candidates: LabelCandidate[],
@@ -46,7 +57,10 @@ export function placeLabels(
 
 	for (const candidate of sorted) {
 		const { fontSizePx } = candidate;
-		const offsetPx = fontSizePx * 0.5;
+		const anchorRadiusPx = candidate.anchorRadiusPx ?? 0;
+		if (anchorRadiusPx) boxes.push(markerBox(candidate.xy, anchorRadiusPx));
+
+		const offsetPx = anchorRadiusPx + fontSizePx * 0.5;
 		const paddingPx = fontSizePx * 0.15;
 		const textWidth = measureWidth(candidate.text, fontSizePx);
 		const textXy: [number, number] = [candidate.xy[0] + offsetPx, candidate.xy[1]];
@@ -76,4 +90,8 @@ interface Box {
 
 function overlaps(a: Box, b: Box): boolean {
 	return a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0;
+}
+
+function markerBox(xy: [number, number], anchorRadiusPx: number): Box {
+	return { x0: xy[0] - anchorRadiusPx, y0: xy[1] - anchorRadiusPx, x1: xy[0] + anchorRadiusPx, y1: xy[1] + anchorRadiusPx };
 }

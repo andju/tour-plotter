@@ -1,6 +1,7 @@
 import { VectorTile } from '@mapbox/vector-tile';
 import { PbfReader } from 'pbf';
 import { SUPPORTED_LANGUAGES } from '../languages';
+import { capitalFromOsmCapital } from '../placeCapital';
 import { sizeFromOsmPlace } from '../placeSize';
 import type { PlaceProperties } from '../types';
 import type { TileCoord } from './tiles';
@@ -127,7 +128,8 @@ function toPlaceFeature(f: GeoJSON.Feature<GeoJSON.Point>): GeoJSON.Feature<GeoJ
 			name: String(props.name ?? ''),
 			names: placeNames(props),
 			rank,
-			size: sizeFromOsmPlace(placeClass, rank)
+			size: sizeFromOsmPlace(placeClass, rank),
+			capital: capitalFromOsmCapital(props.capital == null ? null : Number(props.capital))
 		}
 	};
 }

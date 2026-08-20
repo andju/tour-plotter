@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { CITY_SIZE_MAX, POPULATION_FLOORS, populationLabel, sizeFromOsmPlace, sizeFromPopulation } from './placeSize';
+import {
+	CITY_SIZE_CLASS_COUNT,
+	CITY_SIZE_MAX,
+	POPULATION_FLOORS,
+	populationLabel,
+	sizeClass,
+	sizeFromOsmPlace,
+	sizeFromPopulation
+} from './placeSize';
 
 describe('sizeFromPopulation', () => {
 	it('lands on the documented boundary between level 0 and level 1', () => {
@@ -66,5 +74,32 @@ describe('populationLabel', () => {
 
 	it('reads "All places" at the max', () => {
 		expect(populationLabel(CITY_SIZE_MAX)).toBe('All places');
+	});
+});
+
+describe('sizeClass', () => {
+	it('collapses the 0-CITY_SIZE_MAX ladder into CITY_SIZE_CLASS_COUNT classes', () => {
+		expect(sizeClass(0)).toBe(0);
+		expect(sizeClass(1)).toBe(0);
+		expect(sizeClass(2)).toBe(1);
+		expect(sizeClass(3)).toBe(1);
+		expect(sizeClass(4)).toBe(2);
+		expect(sizeClass(5)).toBe(2);
+		expect(sizeClass(6)).toBe(3);
+		expect(sizeClass(7)).toBe(3);
+		expect(sizeClass(8)).toBe(4);
+		expect(sizeClass(9)).toBe(4);
+		expect(sizeClass(CITY_SIZE_MAX)).toBe(4);
+	});
+
+	it('is monotone: a larger (smaller-looking) size never yields a smaller class', () => {
+		for (let i = 1; i <= CITY_SIZE_MAX; i++) expect(sizeClass(i)).toBeGreaterThanOrEqual(sizeClass(i - 1));
+	});
+
+	it('stays within [0, CITY_SIZE_CLASS_COUNT - 1]', () => {
+		for (let size = 0; size <= CITY_SIZE_MAX; size++) {
+			expect(sizeClass(size)).toBeGreaterThanOrEqual(0);
+			expect(sizeClass(size)).toBeLessThan(CITY_SIZE_CLASS_COUNT);
+		}
 	});
 });

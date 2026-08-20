@@ -41,11 +41,26 @@ export class SvgRenderer implements Renderer {
 			`cy="${xy[1]}"`,
 			`r="${radiusPx}"`,
 			`fill="${style.fill}"`,
+			style.stroke ? `stroke="${style.stroke}"` : '',
+			style.stroke ? `stroke-width="${style.strokeWidthPx ?? 1}"` : '',
 			style.opacity !== undefined ? `opacity="${style.opacity}"` : ''
 		]
 			.filter(Boolean)
 			.join(' ');
 		this.elements.push(`<circle ${attrs} />`);
+	}
+
+	polygon(points: [number, number][], style: FillStyle): void {
+		const attrs = [
+			`points="${points.map(([x, y]) => `${x},${y}`).join(' ')}"`,
+			`fill="${style.fill}"`,
+			style.stroke ? `stroke="${style.stroke}"` : '',
+			style.stroke ? `stroke-width="${style.strokeWidthPx ?? 1}"` : '',
+			style.opacity !== undefined ? `opacity="${style.opacity}"` : ''
+		]
+			.filter(Boolean)
+			.join(' ');
+		this.elements.push(`<polygon ${attrs} />`);
 	}
 
 	text(xy: [number, number], value: string, style: TextStyle): void {

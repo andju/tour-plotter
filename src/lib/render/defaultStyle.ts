@@ -27,10 +27,9 @@ export const DEFAULT_SCENE_STYLE: SceneStyle = {
 		admin1: 0.6,
 		trackCasingExtra: 2
 	},
-	referenceCityDotRadiusPx: { largest: 4, smallest: 1.5 },
+	referenceCitySymbolRadiusPx: [6, 4.5, 3.2, 2.2, 1.5],
 	referenceFontSizePx: {
-		cityLargest: 13,
-		citySmallest: 8.5,
+		cityTiers: [13, 11.5, 10, 9, 8.5],
 		title: 28,
 		stats: 14,
 		credit: 10,

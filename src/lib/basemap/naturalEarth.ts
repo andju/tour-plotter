@@ -1,4 +1,5 @@
 import { base } from '$app/paths';
+import { capitalFromFeatureClass } from './placeCapital';
 import { sizeFromPopulation } from './placeSize';
 import type { BasemapLayers, PlaceProperties } from './types';
 
@@ -36,6 +37,7 @@ interface CityRow extends CityNameColumns {
 	name: string;
 	scalerank: number;
 	pop_max: number;
+	featurecla: string | null;
 }
 
 function cityNames(row: CityNameColumns): Partial<Record<string, string>> {
@@ -82,7 +84,8 @@ export async function loadNaturalEarth(fetchFn: typeof fetch = fetch): Promise<B
 				name: f.properties.name,
 				names: cityNames(f.properties),
 				rank: f.properties.scalerank,
-				size: sizeFromPopulation(f.properties.pop_max)
+				size: sizeFromPopulation(f.properties.pop_max),
+				capital: capitalFromFeatureClass(f.properties.featurecla)
 			},
 			geometry: f.geometry
 		}))

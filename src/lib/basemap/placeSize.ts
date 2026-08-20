@@ -58,3 +58,23 @@ export function populationLabel(size: number): string {
 	if (size >= CITY_SIZE_MAX) return 'All places';
 	return `${POPULATION_FLOORS[size].toLocaleString()}+`;
 }
+
+/**
+ * Number of graduated symbol classes the 0-CITY_SIZE_MAX ladder collapses
+ * into for drawing (render/placeSymbol.ts). Readers can only reliably tell
+ * a handful of point sizes apart, so symbol size is quantized into this
+ * many classes rather than tapering continuously across all 11 levels.
+ */
+export const CITY_SIZE_CLASS_COUNT = 5;
+
+/** Population floor for each symbol class, index = class, largest first. Mirrors a subset of POPULATION_FLOORS. */
+const CLASS_POPULATION_FLOORS = [500_000, 100_000, 25_000, 5_000];
+
+/** Maps a place's fine-grained `size` (0-CITY_SIZE_MAX) to its symbol class (0-CITY_SIZE_CLASS_COUNT-1, 0 largest). */
+export function sizeClass(size: number): number {
+	const pop = size < POPULATION_FLOORS.length ? POPULATION_FLOORS[size] : 0;
+	for (let i = 0; i < CLASS_POPULATION_FLOORS.length; i++) {
+		if (pop >= CLASS_POPULATION_FLOORS[i]) return i;
+	}
+	return CITY_SIZE_CLASS_COUNT - 1;
+}

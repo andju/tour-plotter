@@ -12,6 +12,9 @@ export interface PathStyle {
 export interface FillStyle {
 	fill: string;
 	opacity?: number;
+	/** Outline, e.g. the minimap's viewport marker. */
+	stroke?: string;
+	strokeWidthPx?: number;
 }
 
 export interface RectStyle {
@@ -50,6 +53,8 @@ export interface TextStyle {
 export interface Renderer {
 	path(geometry: GeoJSON.Geometry, style: PathStyle): void;
 	circle(xy: [number, number], radiusPx: number, style: FillStyle): void;
+	/** A closed pixel-space polygon, e.g. the national-capital star — like `circle`/`rect`, takes points already in pixel space rather than lon/lat. */
+	polygon(points: [number, number][], style: FillStyle): void;
 	text(xy: [number, number], value: string, style: TextStyle): void;
 	rect(x: number, y: number, w: number, h: number, style: RectStyle): void;
 	/**

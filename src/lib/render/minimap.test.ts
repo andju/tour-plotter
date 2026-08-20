@@ -75,6 +75,20 @@ describe('minimapBox', () => {
 		expect(box.h).toBeLessThanOrEqual(widthPx * 1.4 + 1e-6);
 	});
 
+	it('pushes the anchored edge in by reservedPx for a bottom position', () => {
+		const plain = minimapBox('bottom-left', outputWidth, outputHeight, marginPx, widthPx, berlin);
+		const reserved = minimapBox('bottom-left', outputWidth, outputHeight, marginPx, widthPx, berlin, 50);
+		expect(reserved.y).toBeCloseTo(plain.y - 50, 5);
+		expect(reserved.x).toBeCloseTo(plain.x, 5);
+		expect(reserved.h).toBeCloseTo(plain.h, 5);
+	});
+
+	it('pushes the anchored edge in by reservedPx for a top position', () => {
+		const plain = minimapBox('top-right', outputWidth, outputHeight, marginPx, widthPx, berlin);
+		const reserved = minimapBox('top-right', outputWidth, outputHeight, marginPx, widthPx, berlin, 50);
+		expect(reserved.y).toBeCloseTo(plain.y + 50, 5);
+	});
+
 	it('all six positions stay within the canvas bounds', () => {
 		const positions = ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right'] as const;
 		for (const position of positions) {

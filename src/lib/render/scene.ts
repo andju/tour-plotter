@@ -1,5 +1,5 @@
 import type { GeoProjection } from 'd3-geo';
-import { CITY_SIZE_MAX } from '../basemap/placeSize';
+import type { PlaceCapital } from '../basemap/placeCapital';
 import type { BasemapLayers, PlaceProperties } from '../basemap/types';
 import { bboxIntersects, featureBbox } from './cull';
 import type { Bbox } from '../geo/bbox';
@@ -7,8 +7,9 @@ import { trackToGeoJSON, type Track } from '../gpx/types';
 import { visibleAt, zoomForProjection, type DetailBias } from './detail';
 import { placeLabels, type LabelCandidate } from './labels';
 import { parseRichText } from './markdown';
-import { buildInsetProjection, minimapBbox, minimapBox, minimapMarker } from './minimap';
-import { layoutRichText } from './richTextLayout';
+import { buildInsetProjection, minimapBbox, minimapBox, minimapHeightPx, minimapMarker } from './minimap';
+import { placeSymbol, type PlaceSymbol } from './placeSymbol';
+import { layoutRichText, TEXT_BAND_LINE_HEIGHT } from './richTextLayout';
 import { computeScaleBar } from './scaleBar';
 import type { Font, PathStyle, Renderer } from './renderer';
 
@@ -48,12 +49,11 @@ export interface SceneStyle {
 		admin1: number;
 		trackCasingExtra: number;
 	};
-	/** City dot radius tapers linearly across a place's size (PlaceProperties.size) — largest at size 0, smallest at CITY_SIZE_MAX. */
-	referenceCityDotRadiusPx: { largest: number; smallest: number };
+	/** Marker half-extent (circle radius / square half-side / star circumradius base) per size class — see basemap/placeSize.ts's `sizeClass` and render/placeSymbol.ts. Index 0 is the largest class; discrete, not a taper, since readers can only reliably tell a handful of point sizes apart. */
+	referenceCitySymbolRadiusPx: number[];
 	referenceFontSizePx: {
-		/** City label font size tapers linearly across a place's size, like referenceCityDotRadiusPx. */
-		cityLargest: number;
-		citySmallest: number;
+		/** City label font size per size class, same indexing as referenceCitySymbolRadiusPx. */
+		cityTiers: number[];
 		title: number;
 		stats: number;
 		credit: number;
@@ -337,44 +337,69 @@ function visibleFeatures(
 	);
 }
 
-/** Linear interpolation across a place's size, 0 (largest) to CITY_SIZE_MAX (smallest). */
-function sizeLerp(size: number, largest: number, smallest: number): number {
-	const t = Math.min(1, Math.max(0, size / CITY_SIZE_MAX));
-	return largest + (smallest - largest) * t;
+/**
+ * Draws one place's symbol: a plain circle, a square for a first-order
+ * capital, or a star for a national capital — see placeSymbol.ts.
+ */
+function drawSymbol(renderer: Renderer, xy: [number, number], symbol: PlaceSymbol, style: SceneStyle): void {
+	if (symbol.shape === 'circle') {
+		renderer.circle(xy, symbol.drawRadiusPx, { fill: style.cityDotFill });
+		return;
+	}
+	if (symbol.shape === 'square') {
+		const h = symbol.drawRadiusPx;
+		renderer.rect(xy[0] - h, xy[1] - h, h * 2, h * 2, { fill: style.cityDotFill });
+		return;
+	}
+	renderer.polygon(symbol.starPoints, { fill: style.cityDotFill });
+}
+
+/** A capital's label is worth keeping over a merely-larger neighbour it competes with for space — see placeLabels' priority (lower wins). Bumped by less than one size class (~200 priority points), so a capital never outranks a genuinely larger ordinary place two classes up. */
+function capitalPriorityBoost(capital: PlaceCapital | undefined): number {
+	if (capital === 'country') return 100;
+	if (capital === 'region') return 50;
+	return 0;
 }
 
 function drawPlaces(renderer: Renderer, input: SceneInput, scale: number, mapBottom: number): void {
 	const { basemap, overlay, style, projection, measureTextWidth, outputWidth } = input;
-	const dotRadii = style.referenceCityDotRadiusPx;
-	const fontSizes = style.referenceFontSizePx;
+	const radiiPx = style.referenceCitySymbolRadiusPx.map((r) => r * scale);
+	const fontSizesPx = style.referenceFontSizePx.cityTiers.map((f) => f * scale);
 
 	interface Positioned {
-		id: string;
 		xy: [number, number];
-		radiusPx: number;
+		symbol: PlaceSymbol;
 	}
 	const candidates: LabelCandidate[] = [];
 	const positioned: Positioned[] = [];
 
 	(basemap.places.features as GeoJSON.Feature<GeoJSON.Point, PlaceProperties>[]).forEach((feature, i) => {
-		const { size, rank } = feature.properties;
+		const { size, rank, capital } = feature.properties;
 		if (size > overlay.citySize) return;
 		const xy = projection(feature.geometry.coordinates as [number, number]);
 		if (!xy) return;
 		const [x, y] = xy;
 		if (x < 0 || y < 0 || x > outputWidth || y > mapBottom) return;
 
-		const id = `place-${i}`;
-		const radiusPx = sizeLerp(size, dotRadii.largest, dotRadii.smallest) * scale;
-		positioned.push({ id, xy, radiusPx });
+		const symbol = placeSymbol(xy, size, capital, radiiPx, fontSizesPx);
+		positioned.push({ xy, symbol });
 
-		const fontSizePx = sizeLerp(size, fontSizes.cityLargest, fontSizes.citySmallest) * scale;
+		const id = `place-${i}`;
 		const text = feature.properties.names?.[overlay.cityLabelLanguage] ?? feature.properties.name;
-		candidates.push({ id, xy, text, priority: size * 100 + rank, fontSizePx });
+		candidates.push({
+			id,
+			xy,
+			text,
+			priority: size * 100 + rank - capitalPriorityBoost(capital),
+			fontSizePx: symbol.fontSizePx,
+			anchorRadiusPx: symbol.anchorRadiusPx
+		});
 	});
 
-	for (const p of positioned) {
-		renderer.circle(p.xy, p.radiusPx, { fill: style.cityDotFill });
+	// Smallest first, largest last, so a prominent symbol always sits on top where two overlap.
+	positioned.sort((a, b) => a.symbol.anchorRadiusPx - b.symbol.anchorRadiusPx);
+	for (const { xy, symbol } of positioned) {
+		drawSymbol(renderer, xy, symbol, style);
 	}
 
 	const placed = placeLabels(
@@ -395,61 +420,155 @@ function drawPlaces(renderer: Renderer, input: SceneInput, scale: number, mapBot
 	}
 }
 
-/** Extra breathing room (at the 1000px reference width) between the stats text and the scale bar's label, above the spacing already implied by their font sizes. */
+/**
+ * Gap (at the 1000px reference width) between the scale bar's own bar and
+ * label inside their shared pill, and again between that pill and the stats
+ * pill stacked above it — reused for both so the two visually separate
+ * chips never crowd together.
+ */
 const BOTTOM_LEFT_STACK_GAP_PX = 6;
+
+/**
+ * Height the scale bar's pill (bar + label, plus the same padding/plate
+ * treatment as the title — see `drawTitle`) occupies above `mapBottom -
+ * marginPx`, mirroring the arithmetic `drawBottomLeft` uses to step `y` up
+ * past it — shared by both so they can't drift apart. 0 when the bar is off
+ * or `computeScaleBar` has nothing to show (e.g. an unprojectable view).
+ */
+function scaleBarStackHeightPx(input: SceneInput, scale: number, mapBottom: number): number {
+	const { overlay, style, outputWidth, marginPx, projection } = input;
+	if (!overlay.showScaleBar) return 0;
+	const bar = computeScaleBar(projection, outputWidth, mapBottom, marginPx);
+	if (!bar) return 0;
+	const barHeightPx = 3 * scale;
+	const labelFontSizePx = style.referenceFontSizePx.scaleBar * scale;
+	const paddingPx = labelFontSizePx * 0.5;
+	const labelHeightPx = labelFontSizePx * TEXT_BAND_LINE_HEIGHT;
+	return paddingPx * 2 + labelHeightPx + BOTTOM_LEFT_STACK_GAP_PX * scale + barHeightPx;
+}
+
+/**
+ * Total height the scale-bar+stats stack occupies above `mapBottom -
+ * marginPx` — used to reserve space for it against another corner-anchored
+ * overlay landing on bottom-left (see `fixedCornerReservedHeightPx`). 0 when
+ * neither is drawn.
+ */
+function bottomLeftStackHeightPx(input: SceneInput, scale: number, mapBottom: number): number {
+	const scaleBarHeight = scaleBarStackHeightPx(input, scale, mapBottom);
+	let height = scaleBarHeight;
+	if (input.overlay.statsText) {
+		if (height > 0) height += BOTTOM_LEFT_STACK_GAP_PX * scale;
+		const fontSizePx = input.style.referenceFontSizePx.stats * scale;
+		height += fontSizePx * TEXT_BAND_LINE_HEIGHT;
+	}
+	return height;
+}
 
 /**
  * Stacks the scale bar (bottom) and stats text (above it) in the bottom-left
  * corner of the map, bottom-up, so the two never collide — both would
- * otherwise anchor to the same `mapBottom - marginPx` baseline.
+ * otherwise anchor to the same `mapBottom - marginPx` baseline. Each sits on
+ * its own background pill, matching the title's (see `drawTitle`): same
+ * translucent `style.textHalo` plate, same horizontal-only padding bled past
+ * the margin rather than inset from it.
  */
 function drawBottomLeft(renderer: Renderer, input: SceneInput, scale: number, mapBottom: number): void {
-	const { overlay, style, outputWidth, marginPx, projection } = input;
+	const { overlay, style, measureTextWidth, outputWidth, marginPx, projection } = input;
+	const pillFill = hexToRgba(style.textHalo, 0.8);
 	let y = mapBottom - marginPx;
 
 	if (overlay.showScaleBar) {
 		const bar = computeScaleBar(projection, outputWidth, mapBottom, marginPx);
 		if (bar) {
 			const barHeightPx = 3 * scale;
-			renderer.rect(marginPx, y - barHeightPx, bar.widthPx, barHeightPx, { fill: style.scaleBarColor });
+			const labelFont: Font = { sizePx: style.referenceFontSizePx.scaleBar * scale, family: style.fontFamily };
+			const paddingPx = labelFont.sizePx * 0.5;
+			const labelWidthPx = measureTextWidth(bar.label, labelFont);
+			const labelHeightPx = labelFont.sizePx * TEXT_BAND_LINE_HEIGHT;
+			const boxWidthPx = Math.max(bar.widthPx, labelWidthPx) + paddingPx * 2;
+			const boxHeightPx = paddingPx * 2 + labelHeightPx + BOTTOM_LEFT_STACK_GAP_PX * scale + barHeightPx;
+			const boxTop = y - boxHeightPx;
+			renderer.rect(marginPx - paddingPx, boxTop, boxWidthPx, boxHeightPx, { fill: pillFill });
 
-			const font: Font = { sizePx: style.referenceFontSizePx.scaleBar * scale, family: style.fontFamily };
-			renderer.text([marginPx, y - barHeightPx - font.sizePx * 0.6], bar.label, {
-				font,
+			renderer.text([marginPx, boxTop + paddingPx + labelHeightPx / 2], bar.label, {
+				font: labelFont,
 				fill: style.textColor,
-				anchor: 'start',
-				haloColor: style.textHalo,
-				haloWidthPx: font.sizePx * 0.15
+				anchor: 'start'
 			});
-			y -= barHeightPx + font.sizePx * 1.6 + BOTTOM_LEFT_STACK_GAP_PX * scale;
+			renderer.rect(marginPx, y - paddingPx - barHeightPx, bar.widthPx, barHeightPx, { fill: style.scaleBarColor });
+
+			y = boxTop - BOTTOM_LEFT_STACK_GAP_PX * scale;
 		}
 	}
 
 	if (overlay.statsText) {
 		const font: Font = { sizePx: style.referenceFontSizePx.stats * scale, family: style.fontFamily };
-		renderer.text([marginPx, y], overlay.statsText, {
+		const paddingPx = font.sizePx * 0.5;
+		const textWidthPx = measureTextWidth(overlay.statsText, font);
+		const boxWidthPx = textWidthPx + paddingPx * 2;
+		const boxHeightPx = font.sizePx * TEXT_BAND_LINE_HEIGHT;
+		const boxTop = y - boxHeightPx;
+		renderer.rect(marginPx - paddingPx, boxTop, boxWidthPx, boxHeightPx, { fill: pillFill });
+
+		renderer.text([marginPx, boxTop + boxHeightPx / 2], overlay.statsText, {
 			font,
 			fill: style.textColor,
-			anchor: 'start',
-			haloColor: style.textHalo,
-			haloWidthPx: font.sizePx * 0.15
+			anchor: 'start'
 		});
 	}
 }
 
-/** Credit sits bottom-right of the map, matching drawBottomLeft's corner. */
+/** Line height to reserve for the credit's pill above `mapBottom - marginPx`. 0 when the credit is off. */
+function creditHeightPx(input: SceneInput, scale: number): number {
+	if (!input.overlay.showCredit) return 0;
+	return input.style.referenceFontSizePx.credit * scale * TEXT_BAND_LINE_HEIGHT;
+}
+
+/**
+ * Credit sits bottom-right of the map, matching drawBottomLeft's corner, on
+ * the same background pill treatment as the title and the bottom-left stack.
+ */
 function drawCredit(renderer: Renderer, input: SceneInput, scale: number, mapBottom: number): void {
-	const { overlay, style, outputWidth, marginPx, basemap } = input;
+	const { overlay, style, measureTextWidth, outputWidth, marginPx, basemap } = input;
 	if (!overlay.showCredit) return;
 
 	const font: Font = { sizePx: style.referenceFontSizePx.credit * scale, family: style.fontFamily };
-	renderer.text([outputWidth - marginPx, mapBottom - marginPx], basemap.attribution, {
+	const paddingPx = font.sizePx * 0.5;
+	const textWidthPx = measureTextWidth(basemap.attribution, font);
+	const boxWidthPx = textWidthPx + paddingPx * 2;
+	const boxHeightPx = font.sizePx * TEXT_BAND_LINE_HEIGHT;
+	const boxTop = mapBottom - marginPx - boxHeightPx;
+	const boxRight = outputWidth - marginPx + paddingPx;
+
+	renderer.rect(boxRight - boxWidthPx, boxTop, boxWidthPx, boxHeightPx, { fill: hexToRgba(style.textHalo, 0.8) });
+	renderer.text([outputWidth - marginPx, boxTop + boxHeightPx / 2], basemap.attribution, {
 		font,
 		fill: style.textColor,
-		anchor: 'end',
-		haloColor: style.textHalo,
-		haloWidthPx: font.sizePx * 0.15
+		anchor: 'end'
 	});
+}
+
+/**
+ * Height already claimed at `position` by the fixed-corner elements (the
+ * scale-bar+stats stack at bottom-left, the credit at bottom-right) — both
+ * drawn in the `'overlay'` phase, before any corner-anchored overlay that
+ * queries this (minimap, title; see `SCENE_PHASES`). Each non-zero
+ * contribution is padded by `BOTTOM_LEFT_STACK_GAP_PX` — the same gap
+ * `drawBottomLeft` uses between its own stacked stats/scale-bar pills — so
+ * every stacked pair of overlay pills reads with one consistent gap. 0 for
+ * any other position, since neither fixed element sits anywhere else.
+ */
+function fixedCornerReservedHeightPx(position: OverlayPosition, input: SceneInput, scale: number, mapBottom: number): number {
+	const gapPx = BOTTOM_LEFT_STACK_GAP_PX * scale;
+	if (position === 'bottom-left') {
+		const h = bottomLeftStackHeightPx(input, scale, mapBottom);
+		return h > 0 ? h + gapPx : 0;
+	}
+	if (position === 'bottom-right') {
+		const h = creditHeightPx(input, scale);
+		return h > 0 ? h + gapPx : 0;
+	}
+	return 0;
 }
 
 /**
@@ -466,17 +585,17 @@ function drawCredit(renderer: Renderer, input: SceneInput, scale: number, mapBot
  * widest line's width, the full stack's height) rather than the full row —
  * the "neutral colour behind overlay text" requirement, scoped to just the
  * text so it doesn't read as a strip painted across the whole image. The
- * title is prominent enough to warrant this solid backing plate; the
- * smaller stats/scale-bar/credit text uses a per-glyph halo instead (see
- * their `haloColor`/`haloWidthPx`), since a filled box there would cover
- * more of the map than three short lines need.
+ * scale bar, stats, and credit (`drawBottomLeft`/`drawCredit`) use the same
+ * `hexToRgba(style.textHalo, 0.8)` plate, sized the same way — horizontal
+ * padding only, bled past the margin rather than inset from it — so all four
+ * overlay elements read as one consistent pill treatment.
  *
  * Each run is drawn with an explicit `start` anchor at a precomputed x, even
  * for a `middle`/`end`-anchored title — Renderer.text's own anchor modes
  * can't chain multiple runs across one line (each run's x depends on the
  * width of every run before it), so this resolves alignment itself instead.
  */
-/** Converts a `#rrggbb` color to `rgba(...)` at the given alpha, for the title's translucent background plate — the only spot `style.textHalo` needs partial opacity (its other uses are opaque per-glyph halos). */
+/** Converts a `#rrggbb` color to `rgba(...)` at the given alpha, for the overlay pills' translucent background plate — the only spot `style.textHalo` needs partial opacity (its other use, city/place labels, is an opaque per-glyph halo). */
 function hexToRgba(hex: string, alpha: number): string {
 	const r = parseInt(hex.slice(1, 3), 16);
 	const g = parseInt(hex.slice(3, 5), 16);
@@ -500,8 +619,19 @@ function drawTitle(renderer: Renderer, input: SceneInput, scale: number): void {
 	const boxWidthPx = block.widthPx + paddingXPx * 2;
 	const boxHeightPx = block.heightPx;
 
+	// The title is drawn last (see SCENE_PHASES), so it reserves space
+	// against everything already painted at its corner: the fixed
+	// scale-bar+stats/credit, plus the minimap if it happens to share the
+	// same position — otherwise the title's background plate would sit on
+	// top of (and hide part of) either.
+	let reservedPx = fixedCornerReservedHeightPx(overlay.titlePosition, input, scale, outputHeight);
+	const minimap = minimapDimensionsPx(input, scale);
+	if (minimap && overlay.minimapPosition === overlay.titlePosition) {
+		reservedPx += minimap.heightPx + BOTTOM_LEFT_STACK_GAP_PX * scale;
+	}
+
 	const isTop = overlay.titlePosition.startsWith('top');
-	const boxTop = isTop ? marginPx : outputHeight - marginPx - boxHeightPx;
+	const boxTop = isTop ? marginPx + reservedPx : outputHeight - marginPx - boxHeightPx - reservedPx;
 
 	const anchor: 'start' | 'middle' | 'end' = overlay.titlePosition.endsWith('left')
 		? 'start'
@@ -544,6 +674,22 @@ function drawTitle(renderer: Renderer, input: SceneInput, scale: number): void {
 }
 
 /**
+ * The minimap's own size and framing bbox, or `null` when it isn't showing
+ * (off, or `worldLand` not yet loaded) — split out from `drawMinimap` so
+ * another corner-anchored overlay (currently just the title) can reserve
+ * space against it without duplicating this computation or rendering
+ * anything itself.
+ */
+function minimapDimensionsPx(input: SceneInput, scale: number): { widthPx: number; heightPx: number; bbox: Bbox } | null {
+	const { overlay, style, worldLand, visibleBbox: mapVisibleBbox } = input;
+	if (!overlay.showMinimap || !worldLand) return null;
+
+	const widthPx = style.referenceMinimapPx.width * scale;
+	const bbox = minimapBbox(mapVisibleBbox, overlay.minimapCoverageKm);
+	return { widthPx, heightPx: minimapHeightPx(bbox, widthPx), bbox };
+}
+
+/**
  * The minimap: an opaque panel anchored to `overlay.minimapPosition` (same
  * corner/edge vocabulary as the title), showing coarse world land at a much
  * larger extent than the main map, plus a marker for where the main map's
@@ -552,17 +698,24 @@ function drawTitle(renderer: Renderer, input: SceneInput, scale: number): void {
  * `basemap.land` is null and the inset needs land outlines either way.
  * Returns early with no `worldLand` (not yet loaded, or the minimap is off)
  * rather than drawing an empty panel.
+ *
+ * Drawn after the scale bar/stats/credit (the `'overlay'` phase runs first —
+ * see `SCENE_PHASES`), so if `overlay.minimapPosition` lands on one of their
+ * corners the panel would otherwise paint straight over them; `reservedPx`
+ * (via `fixedCornerReservedHeightPx`) pushes the panel's anchored edge in
+ * past them instead.
  */
 function drawMinimap(renderer: Renderer, input: SceneInput, scale: number): void {
 	const { overlay, style, worldLand, worldAdmin0, outputWidth, outputHeight, marginPx, visibleBbox: mapVisibleBbox } = input;
-	if (!overlay.showMinimap || !worldLand) return;
+	const dimensions = minimapDimensionsPx(input, scale);
+	if (!dimensions || !worldLand) return;
+	const { widthPx, bbox } = dimensions;
 
 	const sizes = style.referenceMinimapPx;
-	const widthPx = sizes.width * scale;
 	const innerMarginPx = sizes.innerMarginPx * scale;
 
-	const bbox = minimapBbox(mapVisibleBbox, overlay.minimapCoverageKm);
-	const box = minimapBox(overlay.minimapPosition, outputWidth, outputHeight, marginPx, widthPx, bbox);
+	const reservedPx = fixedCornerReservedHeightPx(overlay.minimapPosition, input, scale, outputHeight);
+	const box = minimapBox(overlay.minimapPosition, outputWidth, outputHeight, marginPx, widthPx, bbox, reservedPx);
 
 	// Panel background first (stands in for water — this app's coarse land
 	// data has no matching water polygon), then land clipped to the box.
@@ -603,76 +756,6 @@ function drawMinimap(renderer: Renderer, input: SceneInput, scale: number): void
 		});
 	} else {
 		renderer.circle(marker.xy, sizes.markerDotRadius * scale, { fill: style.minimapMarkerColor });
-	}
-
-	// Frame drawn last, on top of the marker, so it always reads as a crisp
-	// panel edge rather than being crossed by a marker rect that touches it.
-	renderer.rect(box.x, box.y, box.w, box.h, {
-		stroke: style.admin0Stroke,
-		strokeWidthPx: sizes.frameStroke * scale
-	});
-}
-
-/**
- * The minimap: an opaque panel anchored to `overlay.minimapPosition` (same
- * corner/edge vocabulary as the title), showing coarse world land at a much
- * larger extent than the main map, plus a marker for where the main map's
- * own visible extent falls inside it. Drawn from `worldLand` — source-
- * independent coarse data — rather than `basemap`, since OSM mode's
- * `basemap.land` is null and the inset needs land outlines either way.
- * Returns early with no `worldLand` (not yet loaded, or the minimap is off)
- * rather than drawing an empty panel.
- */
-function drawMinimap(renderer: Renderer, input: SceneInput, scale: number): void {
-	const { overlay, style, worldLand, worldAdmin0, outputWidth, outputHeight, marginPx, visibleBbox: mapVisibleBbox } = input;
-	if (!overlay.showMinimap || !worldLand) return;
-
-	const sizes = style.referenceMinimapPx;
-	const widthPx = sizes.width * scale;
-	const innerMarginPx = sizes.innerMarginPx * scale;
-
-	const bbox = minimapBbox(mapVisibleBbox, overlay.minimapCoverageKm);
-	const box = minimapBox(overlay.minimapPosition, outputWidth, outputHeight, marginPx, widthPx, bbox);
-
-	// Panel background first (stands in for water — this app's coarse land
-	// data has no matching water polygon), then land clipped to the box.
-	renderer.rect(box.x, box.y, box.w, box.h, { fill: style.backgroundFill });
-
-	const insetProjection = buildInsetProjection(box, bbox, innerMarginPx);
-	const insetRenderer = renderer.withProjection(insetProjection);
-	const landStyle: PathStyle = {
-		fill: style.landFill,
-		stroke: style.coastlineStroke,
-		strokeWidthPx: sizes.landStroke * scale
-	};
-	for (const feature of worldLand.features) {
-		insetRenderer.path(feature.geometry, landStyle);
-	}
-
-	if (worldAdmin0) {
-		const adminStyle: PathStyle = {
-			stroke: style.admin0Stroke,
-			strokeWidthPx: sizes.adminStroke * scale
-		};
-		for (const feature of worldAdmin0.features) {
-			insetRenderer.path(feature.geometry, adminStyle);
-		}
-	}
-
-	// The "you are here" marker: the main map's own visible extent,
-	// projected through the inset's projection — a rect when it measures
-	// large enough to read as one, a dot otherwise (e.g. a short track
-	// inside a continent-wide inset).
-	const marker = minimapMarker(insetProjection, mapVisibleBbox, box, sizes.markerMinSizePx * scale);
-	if (marker.kind === 'rect') {
-		renderer.rect(marker.x, marker.y, marker.w, marker.h, {
-			fill: style.textHalo,
-			opacity: 0.35,
-			stroke: style.textColor,
-			strokeWidthPx: sizes.markerStroke * scale
-		});
-	} else {
-		renderer.circle(marker.xy, sizes.markerDotRadius * scale, { fill: style.textColor });
 	}
 
 	// Frame drawn last, on top of the marker, so it always reads as a crisp

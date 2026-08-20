@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { BasemapLayers } from '../basemap/types';
+import type { BasemapLayers, PlaceProperties } from '../basemap/types';
 import type { Bbox } from '../geo/bbox';
 import { buildProjection, visibleBbox } from '../geo/projection';
 import type { Track } from '../gpx/types';
@@ -8,9 +8,9 @@ import { SvgRenderer } from './svg';
 
 const bbox: Bbox = [13.0, 52.0, 13.5, 52.5];
 
-// The title's background plate is drawn at 75% opacity (see hexToRgba in scene.ts) — distinct from
+// The title's background plate is drawn at 80% opacity (see hexToRgba in scene.ts) — distinct from
 // the opaque style.textHalo used for per-glyph halos elsewhere.
-const titleBackgroundFill = 'rgba(255, 255, 255, 0.75)';
+const titleBackgroundFill = 'rgba(255, 255, 255, 0.8)';
 
 const style: SceneStyle = {
 	backgroundFill: '#e5f0ff',
@@ -32,8 +32,8 @@ const style: SceneStyle = {
 	fontFamily: 'sans-serif',
 	monoFontFamily: 'monospace',
 	referenceStrokeWidthPx: { coastline: 2, water: 1, waterway: 1, admin0: 1.5, admin1: 1, trackCasingExtra: 2 },
-	referenceCityDotRadiusPx: { largest: 4, smallest: 1.5 },
-	referenceFontSizePx: { cityLargest: 13, citySmallest: 8.5, title: 24, stats: 14, credit: 10, scaleBar: 10 },
+	referenceCitySymbolRadiusPx: [6, 4.5, 3.2, 2.2, 1.5],
+	referenceFontSizePx: { cityTiers: [13, 11.5, 10, 9, 8.5], title: 24, stats: 14, credit: 10, scaleBar: 10 },
 	referenceMinimapPx: {
 		width: 60,
 		innerMarginPx: 4,
@@ -176,9 +176,7 @@ function worldAdmin0Fixture(): GeoJSON.FeatureCollection {
 	};
 }
 
-function basemapWithPlaces(
-	features: GeoJSON.Feature<GeoJSON.Point, { name: string; rank: number; size: number }>[]
-): BasemapLayers {
+function basemapWithPlaces(features: GeoJSON.Feature<GeoJSON.Point, PlaceProperties>[]): BasemapLayers {
 	return { ...naturalEarthBasemap(), places: { type: 'FeatureCollection', features } };
 }
 
@@ -431,7 +429,7 @@ describe('composeScene — viewport culling', () => {
 });
 
 describe('composeScene — places', () => {
-	function renderPlaces(features: GeoJSON.Feature<GeoJSON.Point, { name: string; rank: number; size: number }>[]) {
+	function renderPlaces(features: GeoJSON.Feature<GeoJSON.Point, PlaceProperties>[]) {
 		const projection = buildProjection(1000, 1000, bbox, 20);
 		const renderer = new SvgRenderer(1000, 1000, projection);
 		composeScene(renderer, {
@@ -455,10 +453,11 @@ describe('composeScene — places', () => {
 		name: string,
 		rank: number,
 		size: number,
-		coordinates: [number, number]
-	): GeoJSON.Feature<GeoJSON.Point, { name: string; rank: number; size: number }> => ({
+		coordinates: [number, number],
+		capital?: 'country' | 'region'
+	): GeoJSON.Feature<GeoJSON.Point, PlaceProperties> => ({
 		type: 'Feature',
-		properties: { name, rank, size },
+		properties: { name, rank, size, capital },
 		geometry: { type: 'Point', coordinates }
 	});
 
@@ -502,6 +501,68 @@ describe('composeScene — places', () => {
 		expect(Math.max(...fontSizes)).toBeGreaterThan(Math.min(...fontSizes));
 	});
 
+	it('two places in the same size class draw identical radii', () => {
+		const svg = renderPlaces([feature('A', 0, 0, [13.1, 52.4]), feature('B', 0, 1, [13.4, 52.1])]);
+		const radii = numbersFor(svg, 'r');
+		expect(radii).toHaveLength(2);
+		expect(radii[0]).toBeCloseTo(radii[1], 5);
+	});
+
+	it('draws an ordinary place as a plain circle, no square or star', () => {
+		const svg = renderPlaces([feature('Plain', 0, 0, [13.25, 52.25])]);
+		expect([...svg.matchAll(/<circle/g)]).toHaveLength(1);
+		expect(svg).not.toContain('<polygon');
+		// The only <rect> is the canvas background fill, not a place marker.
+		expect([...svg.matchAll(/<rect/g)]).toHaveLength(1);
+	});
+
+	it('draws a region capital as a square (rect), not a circle', () => {
+		const svg = renderPlaces([feature('StateCapital', 0, 0, [13.25, 52.25], 'region')]);
+		expect(svg).not.toContain('<circle');
+		// The background fill's <rect>, plus one for the square marker.
+		const rects = [...svg.matchAll(/<rect[^>]*\/>/g)].map((m) => m[0]);
+		expect(rects).toHaveLength(2);
+		expect(rects[1]).toContain(`fill="${style.cityDotFill}"`);
+	});
+
+	it('draws a national capital as a star', () => {
+		const svg = renderPlaces([feature('Capital', 0, 0, [13.25, 52.25], 'country')]);
+		expect([...svg.matchAll(/<polygon/g)]).toHaveLength(1);
+		expect([...svg.matchAll(/<circle/g)]).toHaveLength(0);
+		const polygon = svg.match(/<polygon[^>]*\/>/)![0];
+		expect(polygon).toContain(`fill="${style.cityDotFill}"`);
+	});
+
+	it('doubles the star polygon points at double the output resolution (scale invariant)', () => {
+		function starPointsAt(outputWidth: number): [number, number][] {
+			const projection = buildProjection(outputWidth, outputWidth, bbox, 20 * (outputWidth / 1000));
+			const renderer = new SvgRenderer(outputWidth, outputWidth, projection);
+			composeScene(renderer, {
+				outputWidth,
+				outputHeight: outputWidth,
+				marginPx: 20 * (outputWidth / 1000),
+				projection,
+				visibleBbox: visibleBbox(projection, outputWidth, outputWidth),
+				basemap: basemapWithPlaces([feature('Capital', 0, 0, [13.25, 52.25], 'country')]),
+				tracks: [],
+				overlay: { ...overlay, title: null, statsText: null, showCredit: false, showScaleBar: false },
+				style,
+				measureTextWidth,
+				worldLand: null,
+				worldAdmin0: null
+			});
+			const points = renderer.serialize().match(/<polygon points="([^"]+)"/)![1];
+			return points.split(' ').map((pair) => pair.split(',').map(Number) as [number, number]);
+		}
+
+		const small = starPointsAt(500);
+		const large = starPointsAt(1000);
+		expect(large).toHaveLength(small.length);
+		small.forEach(([sx, sy], i) => {
+			expect(large[i][0]).toBeCloseTo(sx * 2, 4);
+			expect(large[i][1]).toBeCloseTo(sy * 2, 4);
+		});
+	});
 });
 
 describe('composeScene — phase composition', () => {
@@ -606,6 +667,49 @@ describe('composeScene — minimap', () => {
 		expect(countAdmin0Strokes(withAdmin0)).toBe(countAdmin0Strokes(withoutAdmin0) + 1);
 	});
 
+	function minimapFrameY(svg: string): number {
+		const match = svg.match(/<rect x="[^"]+" y="([^"]+)" width="60" height="[^"]+" fill="none" stroke="#666666" stroke-width="1.5" \/>/);
+		if (!match) throw new Error('minimap frame rect not found');
+		return Number(match[1]);
+	}
+
+	it('shifts clear of the credit at bottom-right instead of painting over it', () => {
+		const withCredit = renderAt(1000, 1000, {
+			overlay: { showMinimap: true, minimapPosition: 'bottom-right', showCredit: true },
+			worldLand: worldLandFixture()
+		});
+		const withoutCredit = renderAt(1000, 1000, {
+			overlay: { showMinimap: true, minimapPosition: 'bottom-right', showCredit: false },
+			worldLand: worldLandFixture()
+		});
+		// credit reserves referenceFontSizePx.credit * TEXT_BAND_LINE_HEIGHT + BOTTOM_LEFT_STACK_GAP_PX = 10 * 1.5 + 6 = 21px at this scale.
+		expect(minimapFrameY(withoutCredit) - minimapFrameY(withCredit)).toBeCloseTo(21, 5);
+	});
+
+	it('shifts clear of the scale-bar+stats stack at bottom-left instead of painting over it', () => {
+		const withStack = renderAt(1000, 1000, {
+			overlay: { showMinimap: true, minimapPosition: 'bottom-left', showScaleBar: true, statsText: '10 km' },
+			worldLand: worldLandFixture()
+		});
+		const withoutStack = renderAt(1000, 1000, {
+			overlay: { showMinimap: true, minimapPosition: 'bottom-left', showScaleBar: false, statsText: null },
+			worldLand: worldLandFixture()
+		});
+		expect(minimapFrameY(withStack)).toBeLessThan(minimapFrameY(withoutStack));
+	});
+
+	it('leaves top-corner positions unaffected by the (bottom-only) fixed-corner elements', () => {
+		const withCredit = renderAt(1000, 1000, {
+			overlay: { showMinimap: true, minimapPosition: 'top-right', showCredit: true },
+			worldLand: worldLandFixture()
+		});
+		const withoutCredit = renderAt(1000, 1000, {
+			overlay: { showMinimap: true, minimapPosition: 'top-right', showCredit: false },
+			worldLand: worldLandFixture()
+		});
+		expect(minimapFrameY(withCredit)).toBe(minimapFrameY(withoutCredit));
+	});
+
 	describe('scale invariant', () => {
 		function withMinimap(outputWidth: number, outputHeight: number) {
 			return renderAt(outputWidth, outputHeight, {
@@ -671,14 +775,17 @@ describe('composeScene — title background', () => {
 		expect(renderer.serialize()).not.toContain(`fill="${titleBackgroundFill}"`);
 	});
 
-	it('gives stats, scale bar and credit text a halo, not a filled background box', () => {
+	it('gives stats, scale bar and credit text the same background pill as the title, not a per-glyph halo', () => {
 		const svg = renderAt(1000, 1000);
 		const statsText = [...svg.matchAll(/<text[^>]*>10 km<\/text>/g)];
 		const creditText = svg.match(/<text[^>]*>© Natural Earth<\/text>/);
+		const pillRects = [...svg.matchAll(/<rect[^>]*\/>/g)].map((m) => m[0]).filter((r) => r.includes(`fill="${titleBackgroundFill}"`));
 
 		expect(statsText.length).toBeGreaterThan(0);
-		for (const match of statsText) expect(match[0]).toContain(`stroke="${style.textHalo}"`);
-		expect(creditText?.[0]).toContain(`stroke="${style.textHalo}"`);
+		for (const match of statsText) expect(match[0]).not.toContain('stroke=');
+		expect(creditText?.[0]).not.toContain('stroke=');
+		// One pill each for stats, scale bar, credit, and the title itself.
+		expect(pillRects.length).toBe(4);
 	});
 
 	it('keeps the title text itself free of a per-glyph halo (the background box is the backing)', () => {
@@ -743,5 +850,45 @@ describe('composeScene — title markdown', () => {
 		const svg = renderAt(1000, 1000, { overlay: { title: '- item' } });
 		expect(svg).toContain('>• <');
 		expect(svg).toContain('>item<');
+	});
+});
+
+describe('composeScene — corner collisions', () => {
+	function titleRectY(svg: string): number {
+		// Stats/scale-bar/credit share the same pill fill and are drawn earlier
+		// (the 'overlay' phase, vs. the title's 'text' phase — see
+		// SCENE_PHASES), so the title's own rect is always the last match.
+		const rects = [...svg.matchAll(/<rect[^>]*\/>/g)].map((m) => m[0]);
+		const titleRect = [...rects].reverse().find((r) => r.includes(`fill="${titleBackgroundFill}"`));
+		if (!titleRect) throw new Error('title rect not found');
+		return Number(titleRect.match(/y="([^"]+)"/)![1]);
+	}
+
+	it('pushes the title clear of the minimap when both are anchored to the same corner', () => {
+		const withMinimap = renderAt(1000, 1000, {
+			overlay: { titlePosition: 'top-right', showMinimap: true, minimapPosition: 'top-right' },
+			worldLand: worldLandFixture()
+		});
+		const withoutMinimap = renderAt(1000, 1000, {
+			overlay: { titlePosition: 'top-right', showMinimap: false, minimapPosition: 'top-right' }
+		});
+		expect(titleRectY(withMinimap)).toBeGreaterThan(titleRectY(withoutMinimap));
+	});
+
+	it('leaves the title alone when the minimap sits at a different corner', () => {
+		const withMinimap = renderAt(1000, 1000, {
+			overlay: { titlePosition: 'top-right', showMinimap: true, minimapPosition: 'bottom-left' },
+			worldLand: worldLandFixture()
+		});
+		const withoutMinimap = renderAt(1000, 1000, {
+			overlay: { titlePosition: 'top-right', showMinimap: false, minimapPosition: 'bottom-left' }
+		});
+		expect(titleRectY(withMinimap)).toBe(titleRectY(withoutMinimap));
+	});
+
+	it('pushes the title clear of the credit when titlePosition is bottom-right', () => {
+		const withCredit = renderAt(1000, 1000, { overlay: { titlePosition: 'bottom-right', showCredit: true } });
+		const withoutCredit = renderAt(1000, 1000, { overlay: { titlePosition: 'bottom-right', showCredit: false } });
+		expect(titleRectY(withCredit)).toBeLessThan(titleRectY(withoutCredit));
 	});
 });

@@ -1,3 +1,5 @@
+import type { PlaceCapital } from './placeCapital';
+
 export interface PlaceProperties {
 	/** Default/local name — used whenever the selected language (see languages.ts) has no translation. */
 	name: string;
@@ -7,6 +9,8 @@ export interface PlaceProperties {
 	rank: number;
 	/** Lower is a larger place. 0-CITY_SIZE_MAX (placeSize.ts), normalized across both sources — unlike `rank`, comparable between them. */
 	size: number;
+	/** Administrative status (placeCapital.ts), for symbol shape. Absent for an ordinary place. */
+	capital?: PlaceCapital;
 }
 
 /**

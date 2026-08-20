@@ -43,7 +43,7 @@ describe('MAP_STYLES', () => {
 	it('every palette shares the reference scale fields with DEFAULT_SCENE_STYLE', () => {
 		for (const option of MAP_STYLES) {
 			expect(option.style.referenceStrokeWidthPx).toEqual(DEFAULT_SCENE_STYLE.referenceStrokeWidthPx);
-			expect(option.style.referenceCityDotRadiusPx).toEqual(DEFAULT_SCENE_STYLE.referenceCityDotRadiusPx);
+			expect(option.style.referenceCitySymbolRadiusPx).toEqual(DEFAULT_SCENE_STYLE.referenceCitySymbolRadiusPx);
 			expect(option.style.referenceFontSizePx).toEqual(DEFAULT_SCENE_STYLE.referenceFontSizePx);
 			expect(option.style.fontFamily).toBe(DEFAULT_SCENE_STYLE.fontFamily);
 		}

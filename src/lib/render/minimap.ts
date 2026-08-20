@@ -34,12 +34,25 @@ export function minimapBbox(framingBbox: Bbox, coverageKm: number): Bbox {
 }
 
 /**
+ * The inset's height for a given width, following `bbox`'s own projected
+ * aspect ratio (see `projectedAspect`) rather than a fixed square, clamped so
+ * an extreme (near-polar) extent can't blow the box out to an unusable
+ * height. Split out from `minimapBox` so callers that only need the size —
+ * not a positioned box — (e.g. another overlay reserving space against the
+ * minimap) don't have to fabricate an anchor to get it.
+ */
+export function minimapHeightPx(bbox: Bbox, widthPx: number): number {
+	return widthPx * Math.min(projectedAspect(bbox), 1.4);
+}
+
+/**
  * The inset's pixel box for a given anchor, mirroring `drawTitle`'s
  * corner/edge arithmetic in scene.ts (top/bottom picks y, left/center/right
  * picks x) so the two controls read the same way to a user positioning
- * either. Height follows `bbox`'s own projected aspect ratio (see
- * `projectedAspect`) rather than a fixed square, clamped so an extreme
- * (near-polar) extent can't blow the box out to an unusable height.
+ * either. `reservedPx` pushes the anchored edge in further — past whatever
+ * already occupies this corner from earlier in the draw order (e.g. the
+ * scale bar/credit at a bottom corner) — so the panel stacks below/above it
+ * instead of painting over it; see `fixedCornerReservedHeightPx` in scene.ts.
  */
 export function minimapBox(
 	position: OverlayPosition,
@@ -47,13 +60,13 @@ export function minimapBox(
 	outputHeight: number,
 	marginPx: number,
 	widthPx: number,
-	bbox: Bbox
+	bbox: Bbox,
+	reservedPx = 0
 ): MinimapBox {
-	const aspect = Math.min(projectedAspect(bbox), 1.4);
-	const h = widthPx * aspect;
+	const h = minimapHeightPx(bbox, widthPx);
 
 	const isTop = position.startsWith('top');
-	const y = isTop ? marginPx : outputHeight - marginPx - h;
+	const y = isTop ? marginPx + reservedPx : outputHeight - marginPx - reservedPx - h;
 
 	const x = position.endsWith('left')
 		? marginPx

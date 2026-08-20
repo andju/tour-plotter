@@ -26,8 +26,8 @@ const style: SceneStyle = {
 	fontFamily: 'sans-serif',
 	monoFontFamily: 'monospace',
 	referenceStrokeWidthPx: { coastline: 2, water: 1, waterway: 1, admin0: 1.5, admin1: 1, trackCasingExtra: 2 },
-	referenceCityDotRadiusPx: { largest: 4, smallest: 1.5 },
-	referenceFontSizePx: { cityLargest: 13, citySmallest: 8.5, title: 24, stats: 14, credit: 10, scaleBar: 10 },
+	referenceCitySymbolRadiusPx: [6, 4.5, 3.2, 2.2, 1.5],
+	referenceFontSizePx: { cityTiers: [13, 11.5, 10, 9, 8.5], title: 24, stats: 14, credit: 10, scaleBar: 10 },
 	referenceMinimapPx: {
 		width: 60,
 		innerMarginPx: 4,
