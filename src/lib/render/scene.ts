@@ -612,3 +612,73 @@ function drawMinimap(renderer: Renderer, input: SceneInput, scale: number): void
 		strokeWidthPx: sizes.frameStroke * scale
 	});
 }
+
+/**
+ * The minimap: an opaque panel anchored to `overlay.minimapPosition` (same
+ * corner/edge vocabulary as the title), showing coarse world land at a much
+ * larger extent than the main map, plus a marker for where the main map's
+ * own visible extent falls inside it. Drawn from `worldLand` — source-
+ * independent coarse data — rather than `basemap`, since OSM mode's
+ * `basemap.land` is null and the inset needs land outlines either way.
+ * Returns early with no `worldLand` (not yet loaded, or the minimap is off)
+ * rather than drawing an empty panel.
+ */
+function drawMinimap(renderer: Renderer, input: SceneInput, scale: number): void {
+	const { overlay, style, worldLand, worldAdmin0, outputWidth, outputHeight, marginPx, visibleBbox: mapVisibleBbox } = input;
+	if (!overlay.showMinimap || !worldLand) return;
+
+	const sizes = style.referenceMinimapPx;
+	const widthPx = sizes.width * scale;
+	const innerMarginPx = sizes.innerMarginPx * scale;
+
+	const bbox = minimapBbox(mapVisibleBbox, overlay.minimapCoverageKm);
+	const box = minimapBox(overlay.minimapPosition, outputWidth, outputHeight, marginPx, widthPx, bbox);
+
+	// Panel background first (stands in for water — this app's coarse land
+	// data has no matching water polygon), then land clipped to the box.
+	renderer.rect(box.x, box.y, box.w, box.h, { fill: style.backgroundFill });
+
+	const insetProjection = buildInsetProjection(box, bbox, innerMarginPx);
+	const insetRenderer = renderer.withProjection(insetProjection);
+	const landStyle: PathStyle = {
+		fill: style.landFill,
+		stroke: style.coastlineStroke,
+		strokeWidthPx: sizes.landStroke * scale
+	};
+	for (const feature of worldLand.features) {
+		insetRenderer.path(feature.geometry, landStyle);
+	}
+
+	if (worldAdmin0) {
+		const adminStyle: PathStyle = {
+			stroke: style.admin0Stroke,
+			strokeWidthPx: sizes.adminStroke * scale
+		};
+		for (const feature of worldAdmin0.features) {
+			insetRenderer.path(feature.geometry, adminStyle);
+		}
+	}
+
+	// The "you are here" marker: the main map's own visible extent,
+	// projected through the inset's projection — a rect when it measures
+	// large enough to read as one, a dot otherwise (e.g. a short track
+	// inside a continent-wide inset).
+	const marker = minimapMarker(insetProjection, mapVisibleBbox, box, sizes.markerMinSizePx * scale);
+	if (marker.kind === 'rect') {
+		renderer.rect(marker.x, marker.y, marker.w, marker.h, {
+			fill: style.textHalo,
+			opacity: 0.35,
+			stroke: style.textColor,
+			strokeWidthPx: sizes.markerStroke * scale
+		});
+	} else {
+		renderer.circle(marker.xy, sizes.markerDotRadius * scale, { fill: style.textColor });
+	}
+
+	// Frame drawn last, on top of the marker, so it always reads as a crisp
+	// panel edge rather than being crossed by a marker rect that touches it.
+	renderer.rect(box.x, box.y, box.w, box.h, {
+		stroke: style.admin0Stroke,
+		strokeWidthPx: sizes.frameStroke * scale
+	});
+}
