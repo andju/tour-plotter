@@ -6,7 +6,9 @@ import type { Bbox } from '../geo/bbox';
 import { trackToGeoJSON, type Track } from '../gpx/types';
 import { visibleAt, zoomForProjection, type DetailBias } from './detail';
 import { placeLabels, type LabelCandidate } from './labels';
+import { parseRichText } from './markdown';
 import { buildInsetProjection, minimapBbox, minimapBox, minimapMarker } from './minimap';
+import { layoutRichText } from './richTextLayout';
 import { computeScaleBar } from './scaleBar';
 import type { Font, PathStyle, Renderer } from './renderer';
 
@@ -36,6 +38,8 @@ export interface SceneStyle {
 	trackCasing: string;
 	scaleBarColor: string;
 	fontFamily: string;
+	/** Used for inline `` `code` `` runs in the title (see richTextLayout.ts). No system font stack is loaded for this beyond the browser/OS default monospace face. */
+	monoFontFamily: string;
 	referenceStrokeWidthPx: {
 		coastline: number;
 		water: number;
@@ -68,14 +72,6 @@ export interface SceneStyle {
 		markerDotRadius: number;
 	};
 }
-
-/**
- * Line-height multiplier applied to a reference font size to get the height
- * of one line of text plus a little breathing space above/below it. Sizes
- * the neutral background box `drawLabelWithBackground` paints behind the
- * title text.
- */
-const TEXT_BAND_LINE_HEIGHT = 1.5;
 
 /**
  * Where an overlay panel (the title pill, the minimap) anchors, as a
@@ -457,64 +453,94 @@ function drawCredit(renderer: Renderer, input: SceneInput, scale: number, mapBot
 }
 
 /**
- * Draws `text` with a neutral background rectangle fit to the text itself
- * (plus a little padding) rather than the full row — the "neutral colour
- * behind overlay text" requirement, scoped to just the text so it doesn't
- * read as a strip painted across the whole image. Used for the title, which
- * is prominent enough to warrant a solid backing plate; the smaller
- * stats/scale-bar/credit text uses a per-glyph halo instead (see their
- * `haloColor`/`haloWidthPx`), since a filled box there would cover more of
- * the map than three short lines need.
- */
-function drawLabelWithBackground(
-	renderer: Renderer,
-	input: SceneInput,
-	xy: [number, number],
-	text: string,
-	font: Font,
-	anchor: 'start' | 'middle' | 'end'
-): void {
-	const { style, measureTextWidth } = input;
-	const textWidthPx = measureTextWidth(text, font);
-	const paddingXPx = font.sizePx * 0.5;
-	const boxWidthPx = textWidthPx + paddingXPx * 2;
-	const boxHeightPx = font.sizePx * TEXT_BAND_LINE_HEIGHT;
-	const left =
-		anchor === 'middle'
-			? xy[0] - boxWidthPx / 2
-			: anchor === 'end'
-				? xy[0] - textWidthPx - paddingXPx
-				: xy[0] - paddingXPx;
-
-	renderer.rect(left, xy[1] - boxHeightPx / 2, boxWidthPx, boxHeightPx, { fill: style.textHalo });
-	renderer.text(xy, text, { font, fill: style.textColor, anchor });
-}
-
-/**
  * The title floats directly over the map, anchored to the corner/edge
  * `overlay.titlePosition` picks — nothing reserves space for it, so it sits
  * on top of whatever basemap/track content is already there. `marginPx` is
  * already in output-pixel space (see `drawBottomLeft`/`drawCredit`, which
  * use it the same way), unlike `font.sizePx` which is derived from the
  * 1000px-reference `style` and scaled here.
+ *
+ * `overlay.title` is parsed as a text-only markdown subset (see markdown.ts)
+ * and laid out as a stack of styled runs (richTextLayout.ts), then drawn
+ * behind one neutral background rectangle fit to the block as a whole (the
+ * widest line's width, the full stack's height) rather than the full row —
+ * the "neutral colour behind overlay text" requirement, scoped to just the
+ * text so it doesn't read as a strip painted across the whole image. The
+ * title is prominent enough to warrant this solid backing plate; the
+ * smaller stats/scale-bar/credit text uses a per-glyph halo instead (see
+ * their `haloColor`/`haloWidthPx`), since a filled box there would cover
+ * more of the map than three short lines need.
+ *
+ * Each run is drawn with an explicit `start` anchor at a precomputed x, even
+ * for a `middle`/`end`-anchored title — Renderer.text's own anchor modes
+ * can't chain multiple runs across one line (each run's x depends on the
+ * width of every run before it), so this resolves alignment itself instead.
  */
+/** Converts a `#rrggbb` color to `rgba(...)` at the given alpha, for the title's translucent background plate — the only spot `style.textHalo` needs partial opacity (its other uses are opaque per-glyph halos). */
+function hexToRgba(hex: string, alpha: number): string {
+	const r = parseInt(hex.slice(1, 3), 16);
+	const g = parseInt(hex.slice(3, 5), 16);
+	const b = parseInt(hex.slice(5, 7), 16);
+	return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 function drawTitle(renderer: Renderer, input: SceneInput, scale: number): void {
-	const { overlay, style, outputWidth, outputHeight, marginPx } = input;
+	const { overlay, style, measureTextWidth, outputWidth, outputHeight, marginPx } = input;
 	if (!overlay.title) return;
 
-	const font: Font = { sizePx: style.referenceFontSizePx.title * scale, family: style.fontFamily, weight: 'bold' };
-	const boxHeightPx = font.sizePx * TEXT_BAND_LINE_HEIGHT;
+	const baseFontSizePx = style.referenceFontSizePx.title * scale;
+	const block = layoutRichText(
+		parseRichText(overlay.title),
+		{ baseFontSizePx, fontFamily: style.fontFamily, monoFontFamily: style.monoFontFamily },
+		measureTextWidth
+	);
+	if (block.lines.length === 0) return;
+
+	const paddingXPx = baseFontSizePx * 0.5;
+	const boxWidthPx = block.widthPx + paddingXPx * 2;
+	const boxHeightPx = block.heightPx;
+
 	const isTop = overlay.titlePosition.startsWith('top');
-	const y = isTop ? marginPx + boxHeightPx / 2 : outputHeight - marginPx - boxHeightPx / 2;
+	const boxTop = isTop ? marginPx : outputHeight - marginPx - boxHeightPx;
 
 	const anchor: 'start' | 'middle' | 'end' = overlay.titlePosition.endsWith('left')
 		? 'start'
 		: overlay.titlePosition.endsWith('right')
 			? 'end'
 			: 'middle';
-	const x = anchor === 'start' ? marginPx : anchor === 'end' ? outputWidth - marginPx : outputWidth / 2;
+	// Mirrors the pre-markdown single-line layout: the anchor point sits at
+	// the margin (or canvas centre), and the padding-plus-text box is built
+	// out from it — for 'start'/'end' this lets the box bleed slightly past
+	// the margin by `paddingXPx` rather than the text itself sitting inset.
+	const anchorXPx = anchor === 'start' ? marginPx : anchor === 'end' ? outputWidth - marginPx : outputWidth / 2;
+	const boxLeft =
+		anchor === 'start'
+			? anchorXPx - paddingXPx
+			: anchor === 'end'
+				? anchorXPx + paddingXPx - boxWidthPx
+				: anchorXPx - boxWidthPx / 2;
 
-	drawLabelWithBackground(renderer, input, [x, y], overlay.title, font, anchor);
+	renderer.rect(boxLeft, boxTop, boxWidthPx, boxHeightPx, { fill: hexToRgba(style.textHalo, 0.8) });
+
+	for (const line of block.lines) {
+		if (line.runs.length === 0) continue;
+		const lineLeft =
+			anchor === 'start'
+				? boxLeft + paddingXPx
+				: anchor === 'end'
+					? boxLeft + boxWidthPx - paddingXPx - line.widthPx
+					: boxLeft + boxWidthPx / 2 - line.widthPx / 2;
+		const lineCenterY = boxTop + line.centerYPx;
+
+		for (const run of line.runs) {
+			const runX = lineLeft + run.xPx;
+			renderer.text([runX, lineCenterY], run.text, { font: run.font, fill: style.textColor, anchor: 'start' });
+			if (run.strike) {
+				const strikeHeightPx = Math.max(1, run.font.sizePx * 0.07);
+				renderer.rect(runX, lineCenterY - strikeHeightPx / 2, run.widthPx, strikeHeightPx, { fill: style.textColor });
+			}
+		}
+	}
 }
 
 /**

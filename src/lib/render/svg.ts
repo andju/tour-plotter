@@ -56,6 +56,7 @@ export class SvgRenderer implements Renderer {
 			`font-family="${style.font.family}"`,
 			`font-size="${style.font.sizePx}"`,
 			style.font.weight ? `font-weight="${style.font.weight}"` : '',
+			style.font.style && style.font.style !== 'normal' ? `font-style="${style.font.style}"` : '',
 			`fill="${style.fill}"`,
 			`text-anchor="${svgAnchor(style.anchor)}"`,
 			`dominant-baseline="middle"`,

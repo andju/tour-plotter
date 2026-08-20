@@ -44,7 +44,7 @@ export class CanvasRenderer implements Renderer {
 
 	text(xy: [number, number], value: string, style: TextStyle): void {
 		this.ctx.save();
-		this.ctx.font = `${style.font.weight ?? 'normal'} ${style.font.sizePx}px ${style.font.family}`;
+		this.ctx.font = `${style.font.style ?? 'normal'} ${style.font.weight ?? 'normal'} ${style.font.sizePx}px ${style.font.family}`;
 		this.ctx.textAlign = canvasAlign(style.anchor);
 		this.ctx.textBaseline = 'middle';
 		if (style.haloColor && style.haloWidthPx) {

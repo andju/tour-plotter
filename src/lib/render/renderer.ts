@@ -26,6 +26,7 @@ export interface Font {
 	sizePx: number;
 	family: string;
 	weight?: string;
+	style?: 'normal' | 'italic';
 }
 
 export interface TextStyle {

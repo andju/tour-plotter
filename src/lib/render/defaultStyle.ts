@@ -18,6 +18,7 @@ export const DEFAULT_SCENE_STYLE: SceneStyle = {
 	trackCasing: '#ffffff',
 	scaleBarColor: '#4a4a42',
 	fontFamily: 'Roboto, system-ui, sans-serif',
+	monoFontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
 	referenceStrokeWidthPx: {
 		coastline: 0.8,
 		water: 0.5,

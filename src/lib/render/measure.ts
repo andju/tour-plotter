@@ -28,12 +28,12 @@ const widthCache = new Map<string, number>();
  * expensive part of that.
  */
 export function measureTextWidth(value: string, font: Font): number {
-	const key = `${font.weight ?? 'normal'}|${font.sizePx}|${font.family}|${value}`;
+	const key = `${font.style ?? 'normal'}|${font.weight ?? 'normal'}|${font.sizePx}|${font.family}|${value}`;
 	const cached = widthCache.get(key);
 	if (cached !== undefined) return cached;
 
 	const ctx = getMeasureContext();
-	ctx.font = `${font.weight ?? 'normal'} ${font.sizePx}px ${font.family}`;
+	ctx.font = `${font.style ?? 'normal'} ${font.weight ?? 'normal'} ${font.sizePx}px ${font.family}`;
 	const width = ctx.measureText(value).width;
 	widthCache.set(key, width);
 	return width;

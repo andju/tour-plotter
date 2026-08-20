@@ -93,7 +93,7 @@ test.describe('GPX export', () => {
 		expect(svg.startsWith('<svg')).toBe(true);
 	});
 
-	test('a title never changes the exported PNG dimensions', async ({ page }) => {
+	test('a multi-line markdown title never changes the exported PNG dimensions', async ({ page }) => {
 		await loadFixtureTrack(page);
 		await setDimensions(page, 1000, 1000);
 
@@ -102,15 +102,30 @@ test.describe('GPX export', () => {
 		const baselineDimensions = pngDimensions(readFileSync(await (await baselineDownload).path()));
 		expect(baselineDimensions).toEqual({ width: 1000, height: 1000 });
 
-		await page.getByLabel('Title', { exact: true }).fill('Alpine Loop');
+		await page.getByLabel('Title', { exact: true }).fill('# Alpine Loop\n*July 2026*');
 
 		// The title is drawn directly over the map, not by growing the
 		// canvas, so the export must come back at exactly the size the user
-		// asked for.
+		// asked for, regardless of how many lines the title now has.
 		const titledDownload = page.waitForEvent('download');
 		await page.getByText('Export PNG').click();
 		const titledDimensions = pngDimensions(readFileSync(await (await titledDownload).path()));
 		expect(titledDimensions).toEqual({ width: 1000, height: 1000 });
+	});
+
+	test('a markdown title reaches the exported SVG as separate styled runs', async ({ page }) => {
+		await loadFixtureTrack(page);
+		await setDimensions(page, 1000, 1000);
+		await page.getByLabel('Title', { exact: true }).fill('# Alpine Loop\n*July 2026*');
+
+		const downloadPromise = page.waitForEvent('download');
+		await page.getByText('Export SVG').click();
+		const svg = readFileSync(await (await downloadPromise).path(), 'utf8');
+
+		expect(svg).toContain('>Alpine Loop<');
+		expect(svg).toContain('>July 2026<');
+		const julyText = svg.match(/<text[^>]*>July 2026<\/text>/);
+		expect(julyText?.[0]).toContain('font-style="italic"');
 	});
 
 	test('enabling the minimap never changes the exported PNG dimensions', async ({ page }) => {

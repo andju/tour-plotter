@@ -35,14 +35,20 @@
 	/**
 	 * document.fonts.ready only resolves loads already in flight — it won't
 	 * trigger one on its own. Nothing on the page necessarily renders Roboto
-	 * text yet when export starts, so request both weights explicitly; this
-	 * guarantees composeScene's canvas-based text measurement (shared by both
-	 * the PNG and SVG renderers) sees Roboto's real metrics, not a fallback
-	 * font's. Resolves instantly on repeat exports once the browser has cached
-	 * the font.
+	 * text yet when export starts, so request every weight/style explicitly;
+	 * this guarantees composeScene's canvas-based text measurement (shared by
+	 * both the PNG and SVG renderers) sees Roboto's real metrics, not a
+	 * fallback font's. The italic variants back the title's markdown *italic*
+	 * runs (see richTextLayout.ts). Resolves instantly on repeat exports once
+	 * the browser has cached the fonts.
 	 */
 	async function fontsReady(): Promise<void> {
-		await Promise.all([document.fonts.load('400 16px Roboto'), document.fonts.load('700 16px Roboto')]);
+		await Promise.all([
+			document.fonts.load('400 16px Roboto'),
+			document.fonts.load('700 16px Roboto'),
+			document.fonts.load('italic 400 16px Roboto'),
+			document.fonts.load('italic 700 16px Roboto')
+		]);
 	}
 
 	// Export always performs its own basemap load at export resolution,
@@ -201,14 +207,16 @@
 		/>
 	</label>
 
-	<label>
-		Title
-		<input
-			type="text"
+	<div class="field">
+		<label for="title-field">Title</label>
+		<textarea
+			id="title-field"
+			rows="3"
 			value={exportSettings.title}
-			oninput={(e) => (exportSettings.title = (e.target as HTMLInputElement).value)}
-		/>
-	</label>
+			oninput={(e) => (exportSettings.title = (e.target as HTMLTextAreaElement).value)}
+		></textarea>
+		<span class="hint">Markdown: **bold**, *italic*, ~~strike~~, `code`, # heading, - list</span>
+	</div>
 
 	<label>
 		Title position
@@ -410,12 +418,16 @@
 		font-size: 0.8rem;
 		color: #888;
 	}
-	input[type='text'],
 	input[type='number'],
-	select {
+	select,
+	textarea {
 		padding: 0.3rem;
 		border: 1px solid #ccc;
 		border-radius: 4px;
+	}
+	textarea {
+		font: inherit;
+		resize: vertical;
 	}
 	.segmented {
 		display: flex;

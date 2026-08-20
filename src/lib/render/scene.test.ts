@@ -8,6 +8,10 @@ import { SvgRenderer } from './svg';
 
 const bbox: Bbox = [13.0, 52.0, 13.5, 52.5];
 
+// The title's background plate is drawn at 75% opacity (see hexToRgba in scene.ts) — distinct from
+// the opaque style.textHalo used for per-glyph halos elsewhere.
+const titleBackgroundFill = 'rgba(255, 255, 255, 0.75)';
+
 const style: SceneStyle = {
 	backgroundFill: '#e5f0ff',
 	landFill: '#eeeeee',
@@ -26,6 +30,7 @@ const style: SceneStyle = {
 	trackCasing: '#ffffff',
 	scaleBarColor: '#111111',
 	fontFamily: 'sans-serif',
+	monoFontFamily: 'monospace',
 	referenceStrokeWidthPx: { coastline: 2, water: 1, waterway: 1, admin0: 1.5, admin1: 1, trackCasingExtra: 2 },
 	referenceCityDotRadiusPx: { largest: 4, smallest: 1.5 },
 	referenceFontSizePx: { cityLargest: 13, citySmallest: 8.5, title: 24, stats: 14, credit: 10, scaleBar: 10 },
@@ -640,7 +645,7 @@ describe('composeScene — title background', () => {
 		// + 2 * (24 * 0.5) padding = 120 wide, centred on x=500 -> x=440.
 		// marginPx at 1000 width is 20; 'top-center' anchors the box's vertical
 		// centre at marginPx + boxHeight/2 = 20 + 18 = 38, so the box top is at y=20.
-		expect(svg).toContain(`<rect x="440" y="20" width="120" height="36" fill="${style.textHalo}" />`);
+		expect(svg).toContain(`<rect x="440" y="20" width="120" height="36" fill="${titleBackgroundFill}" />`);
 		expect(svg).toContain('>Test Map<');
 		// Definitely narrower than the full canvas width — the bug this guards against.
 		expect(svg).not.toContain('width="1000" height="36"');
@@ -663,7 +668,7 @@ describe('composeScene — title background', () => {
 			worldLand: null,
 			worldAdmin0: null
 		});
-		expect(renderer.serialize()).not.toContain(`fill="${style.textHalo}"`);
+		expect(renderer.serialize()).not.toContain(`fill="${titleBackgroundFill}"`);
 	});
 
 	it('gives stats, scale bar and credit text a halo, not a filled background box', () => {
@@ -680,5 +685,63 @@ describe('composeScene — title background', () => {
 		const svg = renderAt(1000, 1000);
 		const titleText = svg.match(/<text[^>]*>Test Map<\/text>/);
 		expect(titleText?.[0]).not.toContain('stroke=');
+	});
+});
+
+describe('composeScene — title markdown', () => {
+	it('stacks a multi-line title into one box sized to the tallest stack and widest line', () => {
+		// Two body lines, each 24 * 1.5 = 36 tall -> box height 72. 'Short' is 5
+		// chars (60 wide via the stub measurer), 'A very very long line' is 21
+		// chars (252 wide) — the box follows the wider of the two, not the first.
+		const svg = renderAt(1000, 1000, { overlay: { title: 'Short\nA very very long line' } });
+		expect(svg).toContain(`<rect x="362" y="20" width="276" height="72" fill="${titleBackgroundFill}" />`);
+		expect(svg).toContain('>Short<');
+		expect(svg).toContain('>A very very long line<');
+	});
+
+	it('gives a blank line between two title lines height without drawing anything for it', () => {
+		const svg = renderAt(1000, 1000, { overlay: { title: 'One\n\nTwo' } });
+		// 24 * 1.5 (line) + 24 * 1.5 * 0.5 (blank-line spacing) + 24 * 1.5 (line) = 90.
+		expect(svg).toContain('height="90"');
+	});
+
+	it('renders **bold** and *italic* markdown runs with the matching SVG attributes', () => {
+		const svg = renderAt(1000, 1000, { overlay: { title: '**bold** *italic*' } });
+		const boldText = svg.match(/<text[^>]*>bold<\/text>/);
+		const italicText = svg.match(/<text[^>]*>italic<\/text>/);
+
+		expect(boldText?.[0]).toContain('font-weight="bold"');
+		expect(italicText?.[0]).toContain('font-style="italic"');
+	});
+
+	it('gives a plain (non-heading, non-bold) title run a normal weight', () => {
+		const svg = renderAt(1000, 1000, { overlay: { title: 'Test Map' } });
+		const titleText = svg.match(/<text[^>]*>Test Map<\/text>/);
+		expect(titleText?.[0]).toContain('font-weight="normal"');
+	});
+
+	it('draws a strike-through bar for ~~struck~~ text, distinct from the background plate', () => {
+		const svg = renderAt(1000, 1000, { overlay: { title: '~~struck~~' } });
+		const rects = [...svg.matchAll(/<rect[^>]*\/>/g)].map((m) => m[0]);
+
+		expect(rects.some((r) => r.includes(`fill="${titleBackgroundFill}"`))).toBe(true);
+		expect(rects.some((r) => r.includes(`fill="${style.textColor}"`))).toBe(true);
+	});
+
+	it('draws a larger, bold heading line for "# heading"', () => {
+		const plain = renderAt(1000, 1000, { overlay: { title: 'heading' } });
+		const heading = renderAt(1000, 1000, { overlay: { title: '# heading' } });
+
+		const plainSize = numbersFor(plain.match(/<text[^>]*>heading<\/text>/)![0], 'font-size')[0];
+		const headingSize = numbersFor(heading.match(/<text[^>]*>heading<\/text>/)![0], 'font-size')[0];
+
+		expect(headingSize).toBeGreaterThan(plainSize);
+		expect(heading.match(/<text[^>]*>heading<\/text>/)![0]).toContain('font-weight="bold"');
+	});
+
+	it('prefixes a "- bullet" line with a bullet marker run', () => {
+		const svg = renderAt(1000, 1000, { overlay: { title: '- item' } });
+		expect(svg).toContain('>• <');
+		expect(svg).toContain('>item<');
 	});
 });

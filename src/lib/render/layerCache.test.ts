@@ -24,6 +24,7 @@ const style: SceneStyle = {
 	trackCasing: '#ffffff',
 	scaleBarColor: '#111111',
 	fontFamily: 'sans-serif',
+	monoFontFamily: 'monospace',
 	referenceStrokeWidthPx: { coastline: 2, water: 1, waterway: 1, admin0: 1.5, admin1: 1, trackCasingExtra: 2 },
 	referenceCityDotRadiusPx: { largest: 4, smallest: 1.5 },
 	referenceFontSizePx: { cityLargest: 13, citySmallest: 8.5, title: 24, stats: 14, credit: 10, scaleBar: 10 },
