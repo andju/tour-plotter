@@ -29,4 +29,17 @@ describe('TrackListState.addFiles', () => {
 		expect(trackList.tracks).toHaveLength(2);
 		expect(trackList.tracks[0].style.color).not.toBe(trackList.tracks[1].style.color);
 	});
+
+	it('adds tracks from multiple files passed to a single addFiles call, in order, with distinct colors', async () => {
+		await trackList.addFiles([
+			gpxFile('a.gpx', 1),
+			gpxFile('b.gpx', 1),
+			gpxFile('c.gpx', 1)
+		]);
+
+		expect(trackList.tracks).toHaveLength(3);
+		expect(trackList.tracks.map((t) => t.name)).toEqual(['a.gpx 0', 'b.gpx 0', 'c.gpx 0']);
+		const colors = trackList.tracks.map((t) => t.style.color);
+		expect(new Set(colors).size).toBe(3);
+	});
 });

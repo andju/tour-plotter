@@ -94,7 +94,19 @@
 	// The basemap is published together with the framing it was fetched for,
 	// so the draw effects can never pair fresh tiles with a stale projection
 	// (or vice versa) while a fetch is in flight.
-	let loaded = $state<{ backing: Backing; framing: Framing; basemap: BasemapLayers } | null>(null);
+	//
+	// `$state.raw`, emphatically not `$state`: a deep `$state` recursively
+	// proxies whatever is assigned to it, and `basemap` is a feature
+	// collection holding hundreds of thousands of coordinate pairs. Every one
+	// of those nested arrays would get its own Proxy and its own signal the
+	// first time something read through it — and `visibleFeatures` ->
+	// `featureBbox` (cull.ts) reads *every* coordinate on every compose. That
+	// cost ~500MB of heap and ~1.5s per reassignment on a 30-tile OSM cover,
+	// repaid in full on each one, since a fresh `loaded` object means a fresh
+	// proxy graph even when the tiles underneath are cache hits. Nothing here
+	// mutates `loaded` in place — it is only ever swapped wholesale — so the
+	// deep reactivity bought nothing to begin with.
+	let loaded = $state.raw<{ backing: Backing; framing: Framing; basemap: BasemapLayers } | null>(null);
 
 	// Guards against a fast resize superseding an in-flight basemap fetch
 	// before it resolves, which would otherwise paint stale tiles over the
@@ -137,8 +149,10 @@
 	// tiles. A failed fetch leaves worldLand null (drawMinimap just omits the
 	// panel — see scene.ts) and retries next time this effect's dependencies
 	// change, e.g. the checkbox being toggled off and on again.
-	let worldLand = $state<GeoJSON.FeatureCollection | null>(null);
-	let worldAdmin0 = $state<GeoJSON.FeatureCollection | null>(null);
+	// `$state.raw` for the same reason as `loaded` above — these are whole
+	// Natural Earth feature collections, assigned once and never mutated.
+	let worldLand = $state.raw<GeoJSON.FeatureCollection | null>(null);
+	let worldAdmin0 = $state.raw<GeoJSON.FeatureCollection | null>(null);
 
 	$effect(() => {
 		if (!exportSettings.showMinimap || worldLand) return;

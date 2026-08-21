@@ -7,13 +7,18 @@ class TrackListState {
 
 	async addFiles(files: FileList | File[]): Promise<void> {
 		const newErrors: string[] = [];
+		// Accumulate locally and commit to this.tracks once: each push is a
+		// reactive tick, and PreviewCanvas reacts to tracks changes by
+		// refetching/decoding/composing the whole basemap, so N pushes means
+		// N basemap pipelines for one drop instead of one.
+		const newTracks: Track[] = [];
 
 		for (const file of Array.from(files)) {
 			try {
 				const text = await file.text();
 				const parsed = parseGpx(text, file.name);
-				const offset = this.tracks.length;
-				this.tracks.push(
+				const offset = this.tracks.length + newTracks.length;
+				newTracks.push(
 					...parsed.map((track, i) => ({ ...track, style: defaultStyle(offset + i) }))
 				);
 			} catch (err) {
@@ -21,6 +26,7 @@ class TrackListState {
 			}
 		}
 
+		if (newTracks.length > 0) this.tracks.push(...newTracks);
 		if (newErrors.length > 0) this.errors.push(...newErrors);
 	}
 
