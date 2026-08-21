@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 120">
   <defs>
-    <clipPath id="badge"><rect x="4" y="4" width="112" height="112" rx="28"></rect></clipPath>
+    <clipPath id="badge2"><rect x="4" y="4" width="112" height="112" rx="28"></rect></clipPath>
   </defs>
-  <g clip-path="url(#badge)">
+  <g clip-path="url(#badge2)">
     <rect x="4" y="4" width="112" height="112" fill="#4c7a48"></rect>
 
     <path d="M4 4 L116 4 L116 44 C96 38 78 44 62 54 C46 64 32 60 20 48 C10 40 4 40 4 30 Z" fill="#a9c98a" stroke="#f4f1ea" stroke-width="2"></path>
@@ -24,5 +24,7 @@
       <circle cx="0" cy="-18" r="4" fill="#ffffff"></circle>
     </g>
   </g>
-  <rect x="4" y="4" width="112" height="112" rx="28" fill="none" stroke="#00000014" stroke-width="1"></rect>
+
+  <text x="140" y="58" font-family="Roboto, Helvetica, Arial, sans-serif" font-size="34" font-weight="700" fill="#333333">Tour</text>
+  <text x="140" y="96" font-family="Roboto, Helvetica, Arial, sans-serif" font-size="34" font-weight="400" fill="#333333">Plotter</text>
 </svg>

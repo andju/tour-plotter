@@ -1,8 +1,9 @@
 <script lang="ts">
-	import DropZone from '$lib/components/DropZone.svelte';
-	import ExportPanel from '$lib/components/ExportPanel.svelte';
-	import PreviewCanvas from '$lib/components/PreviewCanvas.svelte';
-	import TrackListPanel from '$lib/components/TrackListPanel.svelte';
+	import logoWordmark from "$lib/assets/logo-wordmark.svg";
+	import DropZone from "$lib/components/DropZone.svelte";
+	import ExportPanel from "$lib/components/ExportPanel.svelte";
+	import PreviewCanvas from "$lib/components/PreviewCanvas.svelte";
+	import TrackListPanel from "$lib/components/TrackListPanel.svelte";
 </script>
 
 <svelte:head>
@@ -10,7 +11,7 @@
 </svelte:head>
 
 <main>
-	<h1>Tour Plotter</h1>
+	<img src={logoWordmark} alt="Tour Plotter" height="100" />
 
 	<div class="layout">
 		<div class="sidebar">
