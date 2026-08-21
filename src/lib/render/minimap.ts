@@ -30,7 +30,18 @@ export interface MinimapBox {
  */
 export function minimapBbox(framingBbox: Bbox, coverageKm: number): Bbox {
 	const [minLon, minLat, maxLon, maxLat] = expandToMinimumCoverage(framingBbox, coverageKm);
-	return [minLon, Math.max(minLat, -MAX_ABS_LAT), maxLon, Math.min(maxLat, MAX_ABS_LAT)];
+
+	// Clamp the *center* latitude, not the two edges independently — clamping
+	// them independently can invert the box near a pole (e.g. minLat=85,
+	// maxLat=84 for a track that sits entirely above 84°N). Shrinking the
+	// half-span's cap to MAX_ABS_LAT bounds the center's clamp range to
+	// [-MAX_ABS_LAT + halfSpan, MAX_ABS_LAT - halfSpan], which is always
+	// non-empty, so both edges land inside ±MAX_ABS_LAT with minLat < maxLat
+	// whenever the original span was non-zero.
+	const halfSpan = Math.min((maxLat - minLat) / 2, MAX_ABS_LAT);
+	const centerLat = Math.max(-MAX_ABS_LAT + halfSpan, Math.min(MAX_ABS_LAT - halfSpan, (minLat + maxLat) / 2));
+
+	return [minLon, centerLat - halfSpan, maxLon, centerLat + halfSpan];
 }
 
 /**

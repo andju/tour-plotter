@@ -67,9 +67,15 @@ export function decodeVectorTile(tile: MvtSource, coord: TileCoord): DecodedTile
 		...featuresFrom(tile, 'landcover', z, x, y, (props) => URBAN_LANDCOVER_CLASSES.has(String(props.class)))
 	];
 	const parks = featuresFrom(tile, 'park', z, x, y, () => true);
-	const admin0 = featuresFrom(tile, 'boundary', z, x, y, (props) => Number(props.admin_level) === 2);
-	const admin1 = featuresFrom(tile, 'boundary', z, x, y, (props) => Number(props.admin_level) === 4);
-	const places = featuresFrom(tile, 'place', z, x, y, (props) => PLACE_CLASSES.has(String(props.class)))
+	const { admin0, admin1 } = boundaryFeaturesFrom(tile, z, x, y);
+	const places = featuresFrom(
+		tile,
+		'place',
+		z,
+		x,
+		y,
+		(props) => PLACE_CLASSES.has(String(props.class)) && String(props.name ?? '').trim() !== ''
+	)
 		.filter((f): f is GeoJSON.Feature<GeoJSON.Point> => f.geometry.type === 'Point')
 		.map(toPlaceFeature);
 
@@ -80,6 +86,28 @@ export function decodeVectorTile(tile: MvtSource, coord: TileCoord): DecodedTile
 export function decodeTile(buf: ArrayBuffer, coord: TileCoord): DecodedTile {
 	const tile = new VectorTile(new PbfReader(new Uint8Array(buf)));
 	return decodeVectorTile(tile, coord);
+}
+
+/** Single pass over the `boundary` layer, splitting rows into admin0 (level
+ * 2) and admin1 (level 4) instead of running featuresFrom twice. */
+function boundaryFeaturesFrom(
+	tile: MvtSource,
+	z: number,
+	x: number,
+	y: number
+): { admin0: GeoJSON.Feature[]; admin1: GeoJSON.Feature[] } {
+	const layer = tile.layers.boundary;
+	const admin0: GeoJSON.Feature[] = [];
+	const admin1: GeoJSON.Feature[] = [];
+	if (!layer) return { admin0, admin1 };
+
+	for (let i = 0; i < layer.length; i++) {
+		const feature = layer.feature(i);
+		const level = Number(feature.properties.admin_level);
+		if (level === 2) admin0.push(feature.toGeoJSON(x, y, z) as GeoJSON.Feature);
+		else if (level === 4) admin1.push(feature.toGeoJSON(x, y, z) as GeoJSON.Feature);
+	}
+	return { admin0, admin1 };
 }
 
 function featuresFrom(

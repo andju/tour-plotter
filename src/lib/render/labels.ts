@@ -22,8 +22,11 @@ export interface PlacedLabel {
 /**
  * Greedy label placement: most important candidates first, each one kept
  * only if its box doesn't overlap an already-placed label and stays on
- * canvas. Adequate at this app's scale — a basemap showing only "major
- * cities" is a few dozen candidates at most, not thousands.
+ * canvas. Reserved boxes are bucketed into a uniform spatial grid (see
+ * `ReservedBoxGrid`) so a new candidate is only checked against boxes near
+ * it, not every box placed so far — this app's city-size slider can push
+ * "all places" candidate counts into the thousands, where a full scan per
+ * candidate becomes millions of rectangle comparisons.
  *
  * Since candidates are processed most-important-first, a large place's label
  * is placed (and its box reserved) before a smaller, lower-priority
@@ -54,11 +57,15 @@ export function placeLabels(
 	const sorted = [...candidates].sort((a, b) => a.priority - b.priority);
 	const placed: PlacedLabel[] = [];
 	const boxes: Box[] = [];
+	const grid = new ReservedBoxGrid(gridCellSize(sorted));
 
 	for (const candidate of sorted) {
 		const { fontSizePx } = candidate;
 		const anchorRadiusPx = candidate.anchorRadiusPx ?? 0;
-		if (anchorRadiusPx) boxes.push(markerBox(candidate.xy, anchorRadiusPx));
+		if (anchorRadiusPx) {
+			const marker = markerBox(candidate.xy, anchorRadiusPx);
+			grid.insert(marker, boxes.push(marker) - 1);
+		}
 
 		const offsetPx = anchorRadiusPx + fontSizePx * 0.5;
 		const paddingPx = fontSizePx * 0.15;
@@ -72,9 +79,9 @@ export function placeLabels(
 		};
 
 		if (box.x0 < 0 || box.y0 < 0 || box.x1 > canvasWidth || box.y1 > canvasHeight) continue;
-		if (boxes.some((existing) => overlaps(existing, box))) continue;
+		if (grid.query(box).some((index) => overlaps(boxes[index], box))) continue;
 
-		boxes.push(box);
+		grid.insert(box, boxes.push(box) - 1);
 		placed.push({ id: candidate.id, dotXy: candidate.xy, text: candidate.text, textXy, fontSizePx });
 	}
 
@@ -94,4 +101,58 @@ function overlaps(a: Box, b: Box): boolean {
 
 function markerBox(xy: [number, number], anchorRadiusPx: number): Box {
 	return { x0: xy[0] - anchorRadiusPx, y0: xy[1] - anchorRadiusPx, x1: xy[0] + anchorRadiusPx, y1: xy[1] + anchorRadiusPx };
+}
+
+/** A multiple of the median candidate font size — a proxy for typical box dimensions. */
+function gridCellSize(candidates: LabelCandidate[]): number {
+	if (candidates.length === 0) return 32;
+	const sizes = [...candidates.map((c) => c.fontSizePx)].sort((a, b) => a - b);
+	const mid = Math.floor(sizes.length / 2);
+	const median = sizes.length % 2 === 0 ? (sizes[mid - 1] + sizes[mid]) / 2 : sizes[mid];
+	return median * 8 || 32;
+}
+
+/**
+ * Uniform grid over reserved boxes, keyed by cell coordinate. A box is
+ * bucketed into every cell it overlaps (it may span more than one), and a
+ * query returns the union of every box index sharing a cell with the query
+ * box — a superset of the true overlaps, which callers narrow with `overlaps`.
+ */
+class ReservedBoxGrid {
+	private readonly cellSize: number;
+	private readonly cells = new Map<string, number[]>();
+
+	constructor(cellSize: number) {
+		this.cellSize = cellSize > 0 ? cellSize : 32;
+	}
+
+	insert(box: Box, index: number): void {
+		for (const key of this.cellKeys(box)) {
+			const bucket = this.cells.get(key);
+			if (bucket) bucket.push(index);
+			else this.cells.set(key, [index]);
+		}
+	}
+
+	query(box: Box): number[] {
+		const seen = new Set<number>();
+		for (const key of this.cellKeys(box)) {
+			const bucket = this.cells.get(key);
+			if (!bucket) continue;
+			for (const index of bucket) seen.add(index);
+		}
+		return [...seen];
+	}
+
+	private *cellKeys(box: Box): Generator<string> {
+		const x0 = Math.floor(box.x0 / this.cellSize);
+		const y0 = Math.floor(box.y0 / this.cellSize);
+		const x1 = Math.floor(box.x1 / this.cellSize);
+		const y1 = Math.floor(box.y1 / this.cellSize);
+		for (let cx = x0; cx <= x1; cx++) {
+			for (let cy = y0; cy <= y1; cy++) {
+				yield `${cx},${cy}`;
+			}
+		}
+	}
 }

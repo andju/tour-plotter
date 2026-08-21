@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Bbox } from '../geo/bbox';
-import { buildInsetProjection, minimapBbox, minimapBox, minimapMarker, type MinimapBox } from './minimap';
+import { buildInsetProjection, minimapBbox, minimapBox, minimapHeightPx, minimapMarker, type MinimapBox } from './minimap';
 
 const berlin: Bbox = [13.0, 52.0, 13.5, 52.5];
 
@@ -30,6 +30,28 @@ describe('minimapBbox', () => {
 
 		expect(Number.isFinite(projection.scale())).toBe(true);
 		expect(projection.scale()).toBeGreaterThan(0);
+	});
+
+	it('never inverts for a framing bbox entirely above 84°N', () => {
+		const arctic: Bbox = [10, 86, 11, 87];
+		const [, minLat, , maxLat] = minimapBbox(arctic, 500);
+
+		expect(minLat).toBeLessThan(maxLat);
+		expect(minLat).toBeGreaterThanOrEqual(-84);
+		expect(maxLat).toBeLessThanOrEqual(84);
+		expect(Number.isFinite(minimapHeightPx([10, minLat, 11, maxLat], 180))).toBe(true);
+		expect(minimapHeightPx([10, minLat, 11, maxLat], 180)).toBeGreaterThan(0);
+	});
+
+	it('never inverts for a framing bbox entirely below 84°S', () => {
+		const antarctic: Bbox = [10, -87, 11, -86];
+		const [, minLat, , maxLat] = minimapBbox(antarctic, 500);
+
+		expect(minLat).toBeLessThan(maxLat);
+		expect(minLat).toBeGreaterThanOrEqual(-84);
+		expect(maxLat).toBeLessThanOrEqual(84);
+		expect(Number.isFinite(minimapHeightPx([10, minLat, 11, maxLat], 180))).toBe(true);
+		expect(minimapHeightPx([10, minLat, 11, maxLat], 180)).toBeGreaterThan(0);
 	});
 });
 
@@ -166,6 +188,7 @@ describe('minimapMarker', () => {
 		const projection = buildInsetProjection(box, bbox, 4);
 		const marker = minimapMarker(projection, [-170, -80, 170, 80], box, 6);
 
+		expect(marker.kind).toBe('rect');
 		if (marker.kind === 'rect') {
 			expect(marker.x).toBeGreaterThanOrEqual(box.x - 1e-6);
 			expect(marker.y).toBeGreaterThanOrEqual(box.y - 1e-6);

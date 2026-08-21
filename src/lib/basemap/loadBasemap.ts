@@ -1,6 +1,6 @@
 import type { Bbox } from '../geo/bbox';
 import { loadNaturalEarth } from './naturalEarth';
-import { loadOsmTiles } from './osm/source';
+import { clearOsmCaches, loadOsmTiles } from './osm/source';
 import type { BasemapLayers } from './types';
 
 export type BasemapSource = 'osm' | 'natural-earth';
@@ -27,4 +27,10 @@ export async function loadBasemap(
 		return naturalEarthPromise;
 	}
 	return loadOsmTiles(bbox, zoom, fetchFn);
+}
+
+/** Test seam: module-scope caches would otherwise leak between test cases. */
+export function clearBasemapCaches(): void {
+	naturalEarthPromise = null;
+	clearOsmCaches();
 }

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { CITY_SIZE_CLASS_COUNT } from '../basemap/placeSize';
 import { DEFAULT_SCENE_STYLE } from './defaultStyle';
 import { DEFAULT_MAP_STYLE, MAP_STYLES, sceneStyleFor, type MapStyleId } from './palettes';
 
@@ -46,6 +47,17 @@ describe('MAP_STYLES', () => {
 			expect(option.style.referenceCitySymbolRadiusPx).toEqual(DEFAULT_SCENE_STYLE.referenceCitySymbolRadiusPx);
 			expect(option.style.referenceFontSizePx).toEqual(DEFAULT_SCENE_STYLE.referenceFontSizePx);
 			expect(option.style.fontFamily).toBe(DEFAULT_SCENE_STYLE.fontFamily);
+		}
+	});
+
+	it('every palette has exactly CITY_SIZE_CLASS_COUNT entries in its per-class arrays', () => {
+		for (const option of MAP_STYLES) {
+			expect(option.style.referenceCitySymbolRadiusPx, `${option.id}.referenceCitySymbolRadiusPx`).toHaveLength(
+				CITY_SIZE_CLASS_COUNT
+			);
+			expect(option.style.referenceFontSizePx.cityTiers, `${option.id}.referenceFontSizePx.cityTiers`).toHaveLength(
+				CITY_SIZE_CLASS_COUNT
+			);
 		}
 	});
 

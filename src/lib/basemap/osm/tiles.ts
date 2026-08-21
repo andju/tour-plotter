@@ -29,6 +29,14 @@ function lonLatToTile(lon: number, lat: number, z: number): { x: number; y: numb
  * fetching a fixed set at a fixed zoom, the cover itself adapts.
  */
 export function tilesForBbox(bbox: Bbox, requestedZoom: number): TileCoord[] {
+	const [, minLat, , maxLat] = bbox;
+	if (minLat > maxLat) {
+		// Latitude never wraps (unlike longitude — see the Bbox doc comment),
+		// so this is always a degenerate input. Left unchecked, coverAtZoom's
+		// y0 > y1 silently yields an empty cover, which loadOsmTiles would
+		// then resolve as a "successful" but blank basemap.
+		throw new Error(`tilesForBbox: inverted latitude range in bbox ${JSON.stringify(bbox)}`);
+	}
 	const z = Math.max(0, Math.min(Math.round(requestedZoom), MAX_SOURCE_ZOOM));
 	for (let zoom = z; zoom >= 0; zoom--) {
 		const cover = coverAtZoom(bbox, zoom);

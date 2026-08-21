@@ -1,3 +1,4 @@
+import { put } from '../boundedCache';
 import type { Font } from './renderer';
 
 let sharedCtx: CanvasRenderingContext2D | null = null;
@@ -12,8 +13,12 @@ function getMeasureContext(): CanvasRenderingContext2D {
 }
 
 // Keyed on every input that affects the result, so a cache hit is exact.
-// City label text comes from a fixed basemap vocabulary (place names in one
-// language), so this stays small in practice — no eviction needed.
+// Two very different consumers feed this: city labels, drawn from a small
+// fixed basemap vocabulary, and the live-typed markdown title (measured via
+// richTextLayout on every keystroke — see scene.ts:136-151). The title is
+// unbounded user input, so entries are capped and evicted oldest-first
+// rather than left to grow for the life of the session.
+export const MAX_MEASURE_CACHE_ENTRIES = 1000;
 const widthCache = new Map<string, number>();
 
 /**
@@ -35,6 +40,11 @@ export function measureTextWidth(value: string, font: Font): number {
 	const ctx = getMeasureContext();
 	ctx.font = `${font.style ?? 'normal'} ${font.weight ?? 'normal'} ${font.sizePx}px ${font.family}`;
 	const width = ctx.measureText(value).width;
-	widthCache.set(key, width);
+	put(widthCache, key, width, MAX_MEASURE_CACHE_ENTRIES);
 	return width;
+}
+
+/** Test seam — asserts the cache stays bounded. */
+export function measureCacheSize(): number {
+	return widthCache.size;
 }

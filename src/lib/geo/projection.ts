@@ -37,9 +37,25 @@ const EDGE_SAMPLES = 32;
 export function buildProjection(width: number, height: number, bbox: Bbox, marginPx: number): GeoProjection {
 	const { centerLon, x0, x1, y0, y1 } = scanBboxExtent(bbox);
 
+	const extentWidth = x1 - x0;
+	const extentHeight = y1 - y0;
+	if (!Number.isFinite(extentWidth) || extentWidth <= 0 || !Number.isFinite(extentHeight) || extentHeight <= 0) {
+		throw new Error(
+			`buildProjection: bbox ${JSON.stringify(bbox)} has a degenerate projected extent ` +
+				`(width=${extentWidth}, height=${extentHeight}) — it may have zero span, or every edge sample failed to project`
+		);
+	}
+
 	const availableWidth = width - 2 * marginPx;
 	const availableHeight = height - 2 * marginPx;
-	const scale = Math.min(availableWidth / (x1 - x0), availableHeight / (y1 - y0));
+	if (availableWidth <= 0 || availableHeight <= 0) {
+		throw new Error(
+			`buildProjection: marginPx ${marginPx} leaves no room in a ${width}x${height} canvas ` +
+				`(availableWidth=${availableWidth}, availableHeight=${availableHeight})`
+		);
+	}
+
+	const scale = Math.min(availableWidth / extentWidth, availableHeight / extentHeight);
 
 	const centerX = (x0 + x1) / 2;
 	const centerY = (y0 + y1) / 2;

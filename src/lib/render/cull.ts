@@ -25,6 +25,14 @@ function walkCoordinates(coordinates: unknown, into: (lon: number, lat: number) 
 	for (const child of arr) walkCoordinates(child, into);
 }
 
+function walkGeometry(geometry: GeoJSON.Geometry, into: (lon: number, lat: number) => void): void {
+	if (geometry.type === 'GeometryCollection') {
+		for (const child of geometry.geometries) walkGeometry(child, into);
+		return;
+	}
+	walkCoordinates(geometry.coordinates, into);
+}
+
 /**
  * A feature's own bbox, memoised per feature object. Basemap feature
  * collections are loaded once and reused by reference for the life of the
@@ -42,15 +50,16 @@ export function featureBbox(feature: GeoJSON.Feature): Bbox {
 	let minLat = Infinity;
 	let maxLon = -Infinity;
 	let maxLat = -Infinity;
-	if (feature.geometry.type !== 'GeometryCollection') {
-		walkCoordinates(feature.geometry.coordinates, (lon, lat) => {
-			minLon = Math.min(minLon, lon);
-			maxLon = Math.max(maxLon, lon);
-			minLat = Math.min(minLat, lat);
-			maxLat = Math.max(maxLat, lat);
-		});
-	}
+	walkGeometry(feature.geometry, (lon, lat) => {
+		minLon = Math.min(minLon, lon);
+		maxLon = Math.max(maxLon, lon);
+		minLat = Math.min(minLat, lat);
+		maxLat = Math.max(maxLat, lat);
+	});
 
+	// A collection/geometry with no coordinates at all (e.g. an empty
+	// GeometryCollection) legitimately has nothing to draw, so the
+	// all-Infinity bbox here is correct and causes it to be culled.
 	const bbox: Bbox = [minLon, minLat, maxLon, maxLat];
 	featureBboxCache.set(feature, bbox);
 	return bbox;

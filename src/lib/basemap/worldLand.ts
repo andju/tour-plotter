@@ -23,3 +23,8 @@ export async function loadWorldLand(fetchFn: typeof fetch = fetch): Promise<GeoJ
 	}
 	return worldLandPromise;
 }
+
+/** Test seam: module-scope caches would otherwise leak between test cases. */
+export function clearWorldLandCache(): void {
+	worldLandPromise = null;
+}

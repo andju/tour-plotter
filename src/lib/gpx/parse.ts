@@ -1,13 +1,24 @@
 import { gpx as gpxToGeoJson } from '@tmcw/togeojson';
-import { defaultStyle, type Track, type TrackPoint } from './types';
+import type { Track, TrackPoint } from './types';
 
 export class GpxParseError extends Error {}
+
+// The Web Crypto UUID API is undefined outside secure contexts (plain HTTP on
+// a LAN host), and these ids have no security requirement — they're just list
+// keys and lookup handles within a session.
+let idCounter = 0;
+function nextTrackId(): string {
+	return `track-${++idCounter}-${Date.now().toString(36)}`;
+}
 
 /**
  * Parses a GPX document's text into one Track per <trk>/<rte> element.
  * Waypoints are ignored — this app renders paths, not points of interest.
+ *
+ * Style is not assigned here: the caller owns the palette rotation, since it
+ * alone knows where in the overall track list these will land.
  */
-export function parseGpx(xmlText: string, sourceName: string): Track[] {
+export function parseGpx(xmlText: string, sourceName: string): Omit<Track, 'style'>[] {
 	const doc = new DOMParser().parseFromString(xmlText, 'text/xml');
 
 	const parserError = doc.getElementsByTagName('parsererror')[0];
@@ -17,7 +28,7 @@ export function parseGpx(xmlText: string, sourceName: string): Track[] {
 
 	const collection = gpxToGeoJson(doc);
 
-	const tracks: Track[] = [];
+	const tracks: Omit<Track, 'style'>[] = [];
 	let trackIndexInFile = 0;
 
 	for (const feature of collection.features) {
@@ -33,10 +44,9 @@ export function parseGpx(xmlText: string, sourceName: string): Track[] {
 			`${sourceName} — track ${trackIndexInFile + 1}`;
 
 		tracks.push({
-			id: crypto.randomUUID(),
+			id: nextTrackId(),
 			name,
-			segments,
-			style: defaultStyle(trackIndexInFile)
+			segments
 		});
 		trackIndexInFile++;
 	}

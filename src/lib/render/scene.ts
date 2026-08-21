@@ -1,8 +1,10 @@
 import type { GeoProjection } from 'd3-geo';
 import type { PlaceCapital } from '../basemap/placeCapital';
+import { CITY_SIZE_CLASS_COUNT } from '../basemap/placeSize';
 import type { BasemapLayers, PlaceProperties } from '../basemap/types';
 import { bboxIntersects, featureBbox } from './cull';
 import type { Bbox } from '../geo/bbox';
+import { normalizeHex } from '../gpx/trackColors';
 import { trackToGeoJSON, type Track } from '../gpx/types';
 import { visibleAt, zoomForProjection, type DetailBias } from './detail';
 import { placeLabels, type LabelCandidate } from './labels';
@@ -10,8 +12,18 @@ import { parseRichText } from './markdown';
 import { buildInsetProjection, minimapBbox, minimapBox, minimapHeightPx, minimapMarker } from './minimap';
 import { placeSymbol, type PlaceSymbol } from './placeSymbol';
 import { layoutRichText, TEXT_BAND_LINE_HEIGHT } from './richTextLayout';
-import { computeScaleBar } from './scaleBar';
+import { computeScaleBar, type ScaleBar } from './scaleBar';
 import type { Font, PathStyle, Renderer } from './renderer';
+
+/** Builds a fixed-length tuple type `[T, T, ..., T]` of length `N` (recursing on a literal number type). */
+type Tuple<T, N extends number, Acc extends T[] = []> = Acc['length'] extends N ? Acc : Tuple<T, N, [...Acc, T]>;
+
+/**
+ * A per-size-class value, one entry per class in `basemap/placeSize.ts`'s
+ * `sizeClass` ladder — tied to `CITY_SIZE_CLASS_COUNT` so the array length
+ * and the class count cannot drift apart.
+ */
+export type CitySizeClassTuple<T = number> = Tuple<T, typeof CITY_SIZE_CLASS_COUNT>;
 
 /**
  * Every length here is defined at a 1000px reference width. composeScene
@@ -50,10 +62,10 @@ export interface SceneStyle {
 		trackCasingExtra: number;
 	};
 	/** Marker half-extent (circle radius / square half-side / star circumradius base) per size class — see basemap/placeSize.ts's `sizeClass` and render/placeSymbol.ts. Index 0 is the largest class; discrete, not a taper, since readers can only reliably tell a handful of point sizes apart. */
-	referenceCitySymbolRadiusPx: number[];
+	referenceCitySymbolRadiusPx: CitySizeClassTuple;
 	referenceFontSizePx: {
 		/** City label font size per size class, same indexing as referenceCitySymbolRadiusPx. */
-		cityTiers: number[];
+		cityTiers: CitySizeClassTuple;
 		title: number;
 		stats: number;
 		credit: number;
@@ -286,7 +298,8 @@ export function composeScenePhase(renderer: Renderer, input: SceneInput, phase: 
 	}
 
 	if (phase === 'minimap') {
-		drawMinimap(renderer, input, scale);
+		const pill = scaleBarPill(input, scale, input.outputHeight);
+		drawMinimap(renderer, input, scale, pill);
 		return;
 	}
 
@@ -295,15 +308,17 @@ export function composeScenePhase(renderer: Renderer, input: SceneInput, phase: 
 		// per overlay.titlePosition directly over the map — nothing reserves
 		// space for it, so it sits on top of whatever basemap/track content
 		// is already there, same as the credit/stats corner text below.
-		drawTitle(renderer, input, scale);
+		const pill = scaleBarPill(input, scale, input.outputHeight);
+		drawTitle(renderer, input, scale, pill);
 		return;
 	}
 
 	// overlay.
 	const mapBottom = input.outputHeight;
+	const pill = scaleBarPill(input, scale, mapBottom);
 
 	drawPlaces(renderer, input, scale, mapBottom);
-	drawBottomLeft(renderer, input, scale, mapBottom);
+	drawBottomLeft(renderer, input, scale, mapBottom, pill);
 	drawCredit(renderer, input, scale, mapBottom);
 }
 
@@ -386,6 +401,7 @@ function drawPlaces(renderer: Renderer, input: SceneInput, scale: number, mapBot
 
 		const id = `place-${i}`;
 		const text = feature.properties.names?.[overlay.cityLabelLanguage] ?? feature.properties.name;
+		if (text.trim() === '') return;
 		candidates.push({
 			id,
 			xy,
@@ -429,22 +445,51 @@ function drawPlaces(renderer: Renderer, input: SceneInput, scale: number, mapBot
 const BOTTOM_LEFT_STACK_GAP_PX = 6;
 
 /**
- * Height the scale bar's pill (bar + label, plus the same padding/plate
- * treatment as the title — see `drawTitle`) occupies above `mapBottom -
- * marginPx`, mirroring the arithmetic `drawBottomLeft` uses to step `y` up
- * past it — shared by both so they can't drift apart. 0 when the bar is off
- * or `computeScaleBar` has nothing to show (e.g. an unprojectable view).
+ * Everything both `scaleBarStackHeightPx` and `drawBottomLeft` need to lay
+ * out the scale bar's pill (bar + label, plus the same padding/plate
+ * treatment as the title — see `drawTitle`) — the single computation the two
+ * used to duplicate. `boxHeightPx`/`boxWidthPx` are the pill's full extent;
+ * the rest are the pieces `drawBottomLeft` positions the bar/label within it.
  */
-function scaleBarStackHeightPx(input: SceneInput, scale: number, mapBottom: number): number {
-	const { overlay, style, outputWidth, marginPx, projection } = input;
-	if (!overlay.showScaleBar) return 0;
+interface ScaleBarPill {
+	bar: ScaleBar;
+	barHeightPx: number;
+	labelFont: Font;
+	paddingPx: number;
+	labelHeightPx: number;
+	boxWidthPx: number;
+	boxHeightPx: number;
+}
+
+/**
+ * Computes the scale-bar pill's geometry once — `null` when the bar is off
+ * or `computeScaleBar` has nothing to show (e.g. an unprojectable view) — so
+ * every caller within one `composeScenePhase` invocation (`drawBottomLeft`
+ * directly, `drawTitle`/`drawMinimap` via `fixedCornerReservedHeightPx`)
+ * shares one `computeScaleBar` call and one copy of the pill arithmetic
+ * instead of each recomputing it.
+ */
+function scaleBarPill(input: SceneInput, scale: number, mapBottom: number): ScaleBarPill | null {
+	const { overlay, style, outputWidth, marginPx, projection, measureTextWidth } = input;
+	if (!overlay.showScaleBar) return null;
 	const bar = computeScaleBar(projection, outputWidth, mapBottom, marginPx);
-	if (!bar) return 0;
+	if (!bar) return null;
 	const barHeightPx = 3 * scale;
-	const labelFontSizePx = style.referenceFontSizePx.scaleBar * scale;
-	const paddingPx = labelFontSizePx * 0.5;
-	const labelHeightPx = labelFontSizePx * TEXT_BAND_LINE_HEIGHT;
-	return paddingPx * 2 + labelHeightPx + BOTTOM_LEFT_STACK_GAP_PX * scale + barHeightPx;
+	const labelFont: Font = { sizePx: style.referenceFontSizePx.scaleBar * scale, family: style.fontFamily };
+	const paddingPx = labelFont.sizePx * 0.5;
+	const labelHeightPx = labelFont.sizePx * TEXT_BAND_LINE_HEIGHT;
+	const labelWidthPx = measureTextWidth(bar.label, labelFont);
+	const boxWidthPx = Math.max(bar.widthPx, labelWidthPx) + paddingPx * 2;
+	const boxHeightPx = paddingPx * 2 + labelHeightPx + BOTTOM_LEFT_STACK_GAP_PX * scale + barHeightPx;
+	return { bar, barHeightPx, labelFont, paddingPx, labelHeightPx, boxWidthPx, boxHeightPx };
+}
+
+/**
+ * Height the scale bar's pill occupies above `mapBottom - marginPx` — just
+ * `pill.boxHeightPx`, 0 when there's no pill. See `scaleBarPill`.
+ */
+function scaleBarStackHeightPx(pill: ScaleBarPill | null): number {
+	return pill?.boxHeightPx ?? 0;
 }
 
 /**
@@ -453,9 +498,8 @@ function scaleBarStackHeightPx(input: SceneInput, scale: number, mapBottom: numb
  * overlay landing on bottom-left (see `fixedCornerReservedHeightPx`). 0 when
  * neither is drawn.
  */
-function bottomLeftStackHeightPx(input: SceneInput, scale: number, mapBottom: number): number {
-	const scaleBarHeight = scaleBarStackHeightPx(input, scale, mapBottom);
-	let height = scaleBarHeight;
+function bottomLeftStackHeightPx(input: SceneInput, scale: number, pill: ScaleBarPill | null): number {
+	let height = scaleBarStackHeightPx(pill);
 	if (input.overlay.statsText) {
 		if (height > 0) height += BOTTOM_LEFT_STACK_GAP_PX * scale;
 		const fontSizePx = input.style.referenceFontSizePx.stats * scale;
@@ -472,33 +516,30 @@ function bottomLeftStackHeightPx(input: SceneInput, scale: number, mapBottom: nu
  * translucent `style.textHalo` plate, same horizontal-only padding bled past
  * the margin rather than inset from it.
  */
-function drawBottomLeft(renderer: Renderer, input: SceneInput, scale: number, mapBottom: number): void {
-	const { overlay, style, measureTextWidth, outputWidth, marginPx, projection } = input;
+function drawBottomLeft(
+	renderer: Renderer,
+	input: SceneInput,
+	scale: number,
+	mapBottom: number,
+	pill: ScaleBarPill | null
+): void {
+	const { overlay, style, measureTextWidth, marginPx } = input;
 	const pillFill = hexToRgba(style.textHalo, 0.8);
 	let y = mapBottom - marginPx;
 
-	if (overlay.showScaleBar) {
-		const bar = computeScaleBar(projection, outputWidth, mapBottom, marginPx);
-		if (bar) {
-			const barHeightPx = 3 * scale;
-			const labelFont: Font = { sizePx: style.referenceFontSizePx.scaleBar * scale, family: style.fontFamily };
-			const paddingPx = labelFont.sizePx * 0.5;
-			const labelWidthPx = measureTextWidth(bar.label, labelFont);
-			const labelHeightPx = labelFont.sizePx * TEXT_BAND_LINE_HEIGHT;
-			const boxWidthPx = Math.max(bar.widthPx, labelWidthPx) + paddingPx * 2;
-			const boxHeightPx = paddingPx * 2 + labelHeightPx + BOTTOM_LEFT_STACK_GAP_PX * scale + barHeightPx;
-			const boxTop = y - boxHeightPx;
-			renderer.rect(marginPx - paddingPx, boxTop, boxWidthPx, boxHeightPx, { fill: pillFill });
+	if (pill) {
+		const { bar, barHeightPx, labelFont, paddingPx, labelHeightPx, boxWidthPx, boxHeightPx } = pill;
+		const boxTop = y - boxHeightPx;
+		renderer.rect(marginPx - paddingPx, boxTop, boxWidthPx, boxHeightPx, { fill: pillFill });
 
-			renderer.text([marginPx, boxTop + paddingPx + labelHeightPx / 2], bar.label, {
-				font: labelFont,
-				fill: style.textColor,
-				anchor: 'start'
-			});
-			renderer.rect(marginPx, y - paddingPx - barHeightPx, bar.widthPx, barHeightPx, { fill: style.scaleBarColor });
+		renderer.text([marginPx, boxTop + paddingPx + labelHeightPx / 2], bar.label, {
+			font: labelFont,
+			fill: style.textColor,
+			anchor: 'start'
+		});
+		renderer.rect(marginPx, y - paddingPx - barHeightPx, bar.widthPx, barHeightPx, { fill: style.scaleBarColor });
 
-			y = boxTop - BOTTOM_LEFT_STACK_GAP_PX * scale;
-		}
+		y = boxTop - BOTTOM_LEFT_STACK_GAP_PX * scale;
 	}
 
 	if (overlay.statsText) {
@@ -558,10 +599,15 @@ function drawCredit(renderer: Renderer, input: SceneInput, scale: number, mapBot
  * every stacked pair of overlay pills reads with one consistent gap. 0 for
  * any other position, since neither fixed element sits anywhere else.
  */
-function fixedCornerReservedHeightPx(position: OverlayPosition, input: SceneInput, scale: number, mapBottom: number): number {
+function fixedCornerReservedHeightPx(
+	position: OverlayPosition,
+	input: SceneInput,
+	scale: number,
+	pill: ScaleBarPill | null
+): number {
 	const gapPx = BOTTOM_LEFT_STACK_GAP_PX * scale;
 	if (position === 'bottom-left') {
-		const h = bottomLeftStackHeightPx(input, scale, mapBottom);
+		const h = bottomLeftStackHeightPx(input, scale, pill);
 		return h > 0 ? h + gapPx : 0;
 	}
 	if (position === 'bottom-right') {
@@ -597,13 +643,15 @@ function fixedCornerReservedHeightPx(position: OverlayPosition, input: SceneInpu
  */
 /** Converts a `#rrggbb` color to `rgba(...)` at the given alpha, for the overlay pills' translucent background plate — the only spot `style.textHalo` needs partial opacity (its other use, city/place labels, is an opaque per-glyph halo). */
 function hexToRgba(hex: string, alpha: number): string {
-	const r = parseInt(hex.slice(1, 3), 16);
-	const g = parseInt(hex.slice(3, 5), 16);
-	const b = parseInt(hex.slice(5, 7), 16);
+	const normalized = normalizeHex(hex);
+	if (!normalized) throw new Error(`Invalid style.textHalo color: ${JSON.stringify(hex)}`);
+	const r = parseInt(normalized.slice(1, 3), 16);
+	const g = parseInt(normalized.slice(3, 5), 16);
+	const b = parseInt(normalized.slice(5, 7), 16);
 	return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-function drawTitle(renderer: Renderer, input: SceneInput, scale: number): void {
+function drawTitle(renderer: Renderer, input: SceneInput, scale: number, pill: ScaleBarPill | null): void {
 	const { overlay, style, measureTextWidth, outputWidth, outputHeight, marginPx } = input;
 	if (!overlay.title) return;
 
@@ -624,7 +672,7 @@ function drawTitle(renderer: Renderer, input: SceneInput, scale: number): void {
 	// scale-bar+stats/credit, plus the minimap if it happens to share the
 	// same position — otherwise the title's background plate would sit on
 	// top of (and hide part of) either.
-	let reservedPx = fixedCornerReservedHeightPx(overlay.titlePosition, input, scale, outputHeight);
+	let reservedPx = fixedCornerReservedHeightPx(overlay.titlePosition, input, scale, pill);
 	const minimap = minimapDimensionsPx(input, scale);
 	if (minimap && overlay.minimapPosition === overlay.titlePosition) {
 		reservedPx += minimap.heightPx + BOTTOM_LEFT_STACK_GAP_PX * scale;
@@ -705,7 +753,7 @@ function minimapDimensionsPx(input: SceneInput, scale: number): { widthPx: numbe
  * (via `fixedCornerReservedHeightPx`) pushes the panel's anchored edge in
  * past them instead.
  */
-function drawMinimap(renderer: Renderer, input: SceneInput, scale: number): void {
+function drawMinimap(renderer: Renderer, input: SceneInput, scale: number, pill: ScaleBarPill | null): void {
 	const { overlay, style, worldLand, worldAdmin0, outputWidth, outputHeight, marginPx, visibleBbox: mapVisibleBbox } = input;
 	const dimensions = minimapDimensionsPx(input, scale);
 	if (!dimensions || !worldLand) return;
@@ -714,7 +762,7 @@ function drawMinimap(renderer: Renderer, input: SceneInput, scale: number): void
 	const sizes = style.referenceMinimapPx;
 	const innerMarginPx = sizes.innerMarginPx * scale;
 
-	const reservedPx = fixedCornerReservedHeightPx(overlay.minimapPosition, input, scale, outputHeight);
+	const reservedPx = fixedCornerReservedHeightPx(overlay.minimapPosition, input, scale, pill);
 	const box = minimapBox(overlay.minimapPosition, outputWidth, outputHeight, marginPx, widthPx, bbox, reservedPx);
 
 	// Panel background first (stands in for water — this app's coarse land

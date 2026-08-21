@@ -40,9 +40,11 @@ interface CityRow extends CityNameColumns {
 	featurecla: string | null;
 }
 
+const NE_NAME_ENTRIES = Object.entries(NE_NAME_COLUMNS);
+
 function cityNames(row: CityNameColumns): Partial<Record<string, string>> {
 	const names: Partial<Record<string, string>> = {};
-	for (const [lang, column] of Object.entries(NE_NAME_COLUMNS)) {
+	for (const [lang, column] of NE_NAME_ENTRIES) {
 		const value = row[column];
 		if (value) names[lang] = value;
 	}

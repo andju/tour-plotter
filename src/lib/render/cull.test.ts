@@ -11,7 +11,8 @@ function polygonFeature(coordinates: [number, number][]): GeoJSON.Feature<GeoJSO
 }
 
 describe('featureBbox', () => {
-	it('computes a feature bbox via geoBounds', () => {
+	// geoBounds is deliberately not used here — see cull.ts's header comment.
+	it('computes a feature bbox from its raw coordinates', () => {
 		const feature = polygonFeature([
 			[10, 50],
 			[12, 50],
@@ -31,6 +32,33 @@ describe('featureBbox', () => {
 		const first = featureBbox(feature);
 		const second = featureBbox(feature);
 		expect(second).toBe(first);
+	});
+
+	it('computes the union bbox of a GeometryCollection', () => {
+		const feature: GeoJSON.Feature<GeoJSON.GeometryCollection> = {
+			type: 'Feature',
+			properties: {},
+			geometry: {
+				type: 'GeometryCollection',
+				geometries: [
+					{ type: 'Point', coordinates: [10, 50] },
+					{ type: 'Point', coordinates: [12, 52] }
+				]
+			}
+		};
+		const bbox = featureBbox(feature);
+		expect(bbox).toEqual([10, 50, 12, 52]);
+		expect(bboxIntersects(bbox, [0, 0, 20, 60])).toBe(true);
+	});
+
+	it('culls an empty GeometryCollection', () => {
+		const feature: GeoJSON.Feature<GeoJSON.GeometryCollection> = {
+			type: 'Feature',
+			properties: {},
+			geometry: { type: 'GeometryCollection', geometries: [] }
+		};
+		const bbox = featureBbox(feature);
+		expect(bboxIntersects(bbox, [-180, -90, 180, 90])).toBe(false);
 	});
 });
 

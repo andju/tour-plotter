@@ -52,4 +52,9 @@ describe('tilesForBbox', () => {
 
 		expect(keys.size).toBe(tiles.length);
 	});
+
+	it('throws on an inverted latitude range instead of returning an empty cover', () => {
+		const inverted: Bbox = [10, 60, 11, 50];
+		expect(() => tilesForBbox(inverted, 10)).toThrow();
+	});
 });

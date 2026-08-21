@@ -134,8 +134,8 @@
 	}
 
 	function clampDimension(value: number): number {
-		if (!Number.isFinite(value)) return 1;
-		return Math.min(Math.max(1, Math.round(value)), exportSettings.maxDimensionPx);
+		if (!Number.isFinite(value)) return exportSettings.minDimensionPx;
+		return Math.min(Math.max(exportSettings.minDimensionPx, Math.round(value)), exportSettings.maxDimensionPx);
 	}
 
 	const canExport = $derived(
@@ -179,7 +179,7 @@
 			Width (px)
 			<input
 				type="number"
-				min="1"
+				min={exportSettings.minDimensionPx}
 				max={exportSettings.maxDimensionPx}
 				value={exportSettings.outputWidth}
 				onchange={(e) => (exportSettings.outputWidth = clampDimension(Number((e.target as HTMLInputElement).value)))}
@@ -189,7 +189,7 @@
 			Height (px)
 			<input
 				type="number"
-				min="1"
+				min={exportSettings.minDimensionPx}
 				max={exportSettings.maxDimensionPx}
 				value={exportSettings.outputHeight}
 				onchange={(e) => (exportSettings.outputHeight = clampDimension(Number((e.target as HTMLInputElement).value)))}
@@ -201,9 +201,13 @@
 		Minimum coverage (km)
 		<input
 			type="number"
-			min="1"
+			min={exportSettings.minCoverageFloorKm}
 			value={exportSettings.minCoverageKm}
-			onchange={(e) => (exportSettings.minCoverageKm = Math.max(1, Number((e.target as HTMLInputElement).value)))}
+			onchange={(e) =>
+				(exportSettings.minCoverageKm = Math.max(
+					exportSettings.minCoverageFloorKm,
+					Number((e.target as HTMLInputElement).value)
+				))}
 		/>
 	</label>
 

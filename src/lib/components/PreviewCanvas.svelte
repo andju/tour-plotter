@@ -46,17 +46,33 @@
 		pixelHeight: number;
 	}
 
+	// Browsers refuse — or silently hand back a blank buffer for — a canvas
+	// whose backing store runs to tens of thousands of pixels on a side.
+	// An extreme output aspect ratio (e.g. the width settings's floor of 1px
+	// against the default 1200px height) would otherwise imply exactly that,
+	// even though both settings individually stay within their own bounds.
+	// Capping the longer backing-store side keeps the preview always
+	// paintable, trading resolution for that combination — it never touches
+	// the actual export, which sizes its own canvas straight from
+	// exportSettings.outputWidth/outputHeight.
+	const MAX_PREVIEW_BACKING_PX = 4096;
+
 	const backing = $derived.by((): Backing => {
 		const aspect = exportSettings.outputWidth / exportSettings.outputHeight;
 		const dpr = window.devicePixelRatio || 1;
 		const cssWidth = containerWidth;
 		const cssHeight = cssWidth / aspect;
-		return {
-			cssWidth,
-			cssHeight,
-			pixelWidth: Math.round(cssWidth * dpr),
-			pixelHeight: Math.round(cssHeight * dpr)
-		};
+
+		let pixelWidth = Math.round(cssWidth * dpr);
+		let pixelHeight = Math.round(cssHeight * dpr);
+		const longestSide = Math.max(pixelWidth, pixelHeight);
+		if (longestSide > MAX_PREVIEW_BACKING_PX) {
+			const scale = MAX_PREVIEW_BACKING_PX / longestSide;
+			pixelWidth = Math.max(1, Math.round(pixelWidth * scale));
+			pixelHeight = Math.max(1, Math.round(pixelHeight * scale));
+		}
+
+		return { cssWidth, cssHeight, pixelWidth, pixelHeight };
 	});
 
 	// Framing is the dividing line between "needs new basemap data" and

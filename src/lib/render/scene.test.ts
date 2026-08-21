@@ -493,12 +493,35 @@ describe('composeScene — places', () => {
 	it('draws a larger dot and label for a smaller-size (more prominent) place', () => {
 		const svg = renderPlaces([feature('Big', 0, 0, [13.1, 52.4]), feature('Small', 0, 9, [13.4, 52.1])]);
 		const radii = numbersFor(svg, 'r');
-		const fontSizes = numbersFor(svg, 'font-size').filter((s) => s < style.referenceFontSizePx.title);
+		// Each haloed label now emits two <text> elements (stroke then fill),
+		// both carrying font-size — dedupe so this asserts per-label, not per-element.
+		const fontSizes = [...new Set(numbersFor(svg, 'font-size').filter((s) => s < style.referenceFontSizePx.title))];
 
 		expect(radii).toHaveLength(2);
 		expect(Math.max(...radii)).toBeGreaterThan(Math.min(...radii));
 		expect(fontSizes).toHaveLength(2);
 		expect(Math.max(...fontSizes)).toBeGreaterThan(Math.min(...fontSizes));
+	});
+
+	it('draws a haloed city label as two <text> elements at the same position — stroke behind fill', () => {
+		const svg = renderPlaces([feature('Solo', 0, 0, [13.25, 52.25])]);
+		const labelTexts = [...svg.matchAll(/<text[^>]*>Solo<\/text>/g)].map((m) => m[0]);
+		expect(labelTexts).toHaveLength(2);
+
+		const [stroke, fill] = labelTexts;
+		const xy = (text: string) => [text.match(/x="([^"]+)"/)![1], text.match(/y="([^"]+)"/)![1]];
+		expect(xy(stroke)).toEqual(xy(fill));
+
+		expect(stroke).toContain('fill="none"');
+		expect(stroke).toContain('stroke=');
+		expect(fill).not.toContain('stroke=');
+		expect(fill).toContain(`fill="${style.textColor}"`);
+	});
+
+	it('never emits dominant-baseline or paint-order, on haloed or plain text alike', () => {
+		const svg = renderAt(1000, 1000, { overlay: { ...overlay, title: 'Test Map' } });
+		expect(svg).not.toContain('dominant-baseline');
+		expect(svg).not.toContain('paint-order');
 	});
 
 	it('two places in the same size class draw identical radii', () => {
@@ -514,6 +537,16 @@ describe('composeScene — places', () => {
 		expect(svg).not.toContain('<polygon');
 		// The only <rect> is the canvas background fill, not a place marker.
 		expect([...svg.matchAll(/<rect/g)]).toHaveLength(1);
+	});
+
+	it('draws a symbol but no label for an unnamed place, freeing space for a neighbour that name would otherwise suppress', () => {
+		const svg = renderPlaces([
+			feature('', 0, 0, [13.25, 52.25]),
+			feature('Neighbor', 0, 1, [13.25, 52.25])
+		]);
+		expect([...svg.matchAll(/<circle/g)]).toHaveLength(2);
+		expect(svg).toContain('Neighbor');
+		expect(svg).not.toMatch(/<text[^>]*>\s*<\/text>/);
 	});
 
 	it('draws a region capital as a square (rect), not a circle', () => {
@@ -792,6 +825,15 @@ describe('composeScene — title background', () => {
 		const svg = renderAt(1000, 1000);
 		const titleText = svg.match(/<text[^>]*>Test Map<\/text>/);
 		expect(titleText?.[0]).not.toContain('stroke=');
+	});
+
+	it('throws rather than silently rendering an invisible pill for an invalid textHalo', () => {
+		const input = sceneInputAt(1000, 1000);
+		const projection = input.projection;
+		const renderer = new SvgRenderer(1000, 1000, projection);
+		expect(() => composeScene(renderer, { ...input, style: { ...style, textHalo: 'not-a-color' } })).toThrow(
+			/textHalo/
+		);
 	});
 });
 

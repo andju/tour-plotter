@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Bbox } from '../../geo/bbox';
 import { clearOsmCaches, loadOsmTiles } from './source';
 
@@ -86,13 +86,73 @@ describe('loadOsmTiles caching', () => {
 	});
 
 	it('does not cache a failed tile, so a retry can succeed', async () => {
+		const probe = stubFetch();
+		await loadOsmTiles(BERLIN, 10, probe.fn);
+		const [firstTileUrl] = probe.tileUrls;
+		clearOsmCaches();
+
 		const stub = stubFetch();
-		stub.failNext.add('https://tiles.example/10/550/335.pbf');
+		stub.failNext.add(firstTileUrl);
 
 		await expect(loadOsmTiles(BERLIN, 10, stub.fn)).rejects.toThrow(/Failed to load tile/);
 
 		const layers = await loadOsmTiles(BERLIN, 10, stub.fn);
 
 		expect(layers.attribution).toContain('OpenStreetMap');
+	});
+
+	it('rejects with a timeout message instead of hanging when a tile never responds', async () => {
+		vi.useFakeTimers();
+		try {
+			const stub = stubFetch();
+			const hungUrl = 'https://tiles.example/10/550/335.pbf';
+			const base = stub.fn;
+			stub.fn = (async (input: RequestInfo | URL, init?: RequestInit) => {
+				if (String(input) === hungUrl) {
+					return new Promise<Response>((_, reject) => {
+						init?.signal?.addEventListener('abort', () =>
+							reject(new DOMException('The operation timed out.', 'TimeoutError'))
+						);
+					});
+				}
+				return base(input, init as RequestInit);
+			}) as typeof fetch;
+
+			const result = expect(loadOsmTiles(BERLIN, 10, stub.fn)).rejects.toThrow(/Timed out/);
+			await vi.advanceTimersByTimeAsync(15_000);
+			await result;
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('does not cache a timed-out tile, so a retry can succeed', async () => {
+		vi.useFakeTimers();
+		try {
+			const stub = stubFetch();
+			const hungUrl = 'https://tiles.example/10/550/335.pbf';
+			const base = stub.fn;
+			let hang = true;
+			stub.fn = (async (input: RequestInfo | URL, init?: RequestInit) => {
+				if (hang && String(input) === hungUrl) {
+					return new Promise<Response>((_, reject) => {
+						init?.signal?.addEventListener('abort', () =>
+							reject(new DOMException('The operation timed out.', 'TimeoutError'))
+						);
+					});
+				}
+				return base(input, init as RequestInit);
+			}) as typeof fetch;
+
+			const result = expect(loadOsmTiles(BERLIN, 10, stub.fn)).rejects.toThrow(/Timed out/);
+			await vi.advanceTimersByTimeAsync(15_000);
+			await result;
+
+			hang = false;
+			const layers = await loadOsmTiles(BERLIN, 10, stub.fn);
+			expect(layers.attribution).toContain('OpenStreetMap');
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });

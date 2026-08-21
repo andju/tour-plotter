@@ -94,22 +94,31 @@ describe('parseGpx', () => {
 		expect(track.name).toContain('unnamed.gpx');
 	});
 
-	it('assigns distinct default colors to tracks in the same file', () => {
-		const tracks = parseGpx(
-			gpxDoc(`
-				<trk><trkseg><trkpt lat="1" lon="1"/><trkpt lat="2" lon="2"/></trkseg></trk>
-				<trk><trkseg><trkpt lat="3" lon="3"/><trkpt lat="4" lon="4"/></trkseg></trk>`),
-			'colors.gpx'
-		);
-
-		expect(tracks[0].style.color).not.toBe(tracks[1].style.color);
-	});
-
 	it('throws GpxParseError on malformed XML', () => {
 		expect(() => parseGpx('<gpx><trk>', 'broken.gpx')).toThrow(GpxParseError);
 	});
 
 	it('throws GpxParseError when the file has no tracks or routes', () => {
 		expect(() => parseGpx(gpxDoc(`<wpt lat="1" lon="2"/>`), 'onlywpt.gpx')).toThrow(GpxParseError);
+	});
+
+	it('assigns different ids to multiple tracks within one document', () => {
+		const tracks = parseGpx(
+			gpxDoc(`
+				<trk><name>First</name><trkseg><trkpt lat="1" lon="1"/><trkpt lat="2" lon="2"/></trkseg></trk>
+				<trk><name>Second</name><trkseg><trkpt lat="3" lon="3"/><trkpt lat="4" lon="4"/></trkseg></trk>`),
+			'multi.gpx'
+		);
+
+		expect(tracks[0].id).not.toBe(tracks[1].id);
+	});
+
+	it('assigns different ids when parsing the same document twice', () => {
+		const doc = gpxDoc(`<trk><trkseg><trkpt lat="1" lon="1"/><trkpt lat="2" lon="2"/></trkseg></trk>`);
+
+		const [first] = parseGpx(doc, 'same.gpx');
+		const [second] = parseGpx(doc, 'same.gpx');
+
+		expect(first.id).not.toBe(second.id);
 	});
 });

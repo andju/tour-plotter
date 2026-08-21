@@ -25,3 +25,8 @@ export async function loadWorldAdmin0(fetchFn: typeof fetch = fetch): Promise<Ge
 	}
 	return worldAdmin0Promise;
 }
+
+/** Test seam: module-scope caches would otherwise leak between test cases. */
+export function clearWorldAdmin0Cache(): void {
+	worldAdmin0Promise = null;
+}

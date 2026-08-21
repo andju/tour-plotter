@@ -104,6 +104,22 @@ describe('decodeVectorTile', () => {
 		expect(result.places[0].properties).toEqual({ name: 'Berlin', names: {}, rank: 1, size: 0 });
 	});
 
+	it('drops place rows with no name, keeping a named sibling', () => {
+		const tile: MvtSource = {
+			layers: {
+				place: fakeLayer([
+					{ properties: { class: 'village', rank: 12 }, geometry: point(13.5, 52.6) },
+					{ properties: { class: 'village', name: '  ', rank: 12 }, geometry: point(13.6, 52.7) },
+					{ properties: { class: 'village', name: 'Somewhere', rank: 12 }, geometry: point(13.7, 52.8) }
+				])
+			}
+		};
+
+		const result = decodeVectorTile(tile, coord);
+		expect(result.places).toHaveLength(1);
+		expect(result.places[0].properties.name).toBe('Somewhere');
+	});
+
 	it('derives size from class, refined by rank within the class', () => {
 		const tile: MvtSource = {
 			layers: {

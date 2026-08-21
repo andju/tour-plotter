@@ -28,6 +28,7 @@ export function bboxOfTracks(tracks: Track[]): Bbox {
 }
 
 export function normalizeLon(lon: number): number {
+	if (lon === 180) return 180;
 	return (((lon + 180) % 360) + 360) % 360 - 180;
 }
 

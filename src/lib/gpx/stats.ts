@@ -72,6 +72,7 @@ function duration(track: Track): number | null {
 		const start = Date.parse(times[0]);
 		const end = Date.parse(times[times.length - 1]);
 		if (Number.isNaN(start) || Number.isNaN(end)) continue;
+		if (end < start) continue;
 
 		total += (end - start) / 1000;
 		sawDuration = true;

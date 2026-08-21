@@ -19,6 +19,14 @@ describe('formatStats', () => {
 	it('formats duration over an hour as hours and minutes', () => {
 		expect(formatStats({ distanceKm: 5, elevationGainM: null, durationSeconds: 90 * 60 })).toBe('5.0 km · 1h 30m');
 	});
+
+	it('carries a rounded minute remainder into the next hour', () => {
+		expect(formatStats({ distanceKm: 5, elevationGainM: null, durationSeconds: 3590 })).toBe('5.0 km · 1h 0m');
+	});
+
+	it('carries a rounded minute remainder past an already-whole hour', () => {
+		expect(formatStats({ distanceKm: 5, elevationGainM: null, durationSeconds: 7180 })).toBe('5.0 km · 2h 0m');
+	});
 });
 
 describe('combineStats', () => {

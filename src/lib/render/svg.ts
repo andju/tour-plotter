@@ -22,13 +22,13 @@ export class SvgRenderer implements Renderer {
 		const d = this.toPathData(geometry);
 		if (!d) return;
 		const attrs = [
-			`d="${d}"`,
-			`fill="${style.fill ?? 'none'}"`,
-			style.stroke ? `stroke="${style.stroke}"` : '',
-			style.stroke ? `stroke-width="${style.strokeWidthPx ?? 1}"` : '',
+			attr('d', d),
+			attr('fill', style.fill ?? 'none'),
+			style.stroke ? attr('stroke', style.stroke) : '',
+			style.stroke ? attr('stroke-width', style.strokeWidthPx ?? 1) : '',
 			style.stroke ? `stroke-linejoin="round" stroke-linecap="round"` : '',
-			style.stroke && style.dashPx?.length ? `stroke-dasharray="${style.dashPx.join(',')}"` : '',
-			style.opacity !== undefined ? `opacity="${style.opacity}"` : ''
+			style.stroke && style.dashPx?.length ? attr('stroke-dasharray', style.dashPx.join(',')) : '',
+			style.opacity !== undefined ? attr('opacity', style.opacity) : ''
 		]
 			.filter(Boolean)
 			.join(' ');
@@ -37,13 +37,13 @@ export class SvgRenderer implements Renderer {
 
 	circle(xy: [number, number], radiusPx: number, style: FillStyle): void {
 		const attrs = [
-			`cx="${xy[0]}"`,
-			`cy="${xy[1]}"`,
-			`r="${radiusPx}"`,
-			`fill="${style.fill}"`,
-			style.stroke ? `stroke="${style.stroke}"` : '',
-			style.stroke ? `stroke-width="${style.strokeWidthPx ?? 1}"` : '',
-			style.opacity !== undefined ? `opacity="${style.opacity}"` : ''
+			attr('cx', xy[0]),
+			attr('cy', xy[1]),
+			attr('r', radiusPx),
+			attr('fill', style.fill),
+			style.stroke ? attr('stroke', style.stroke) : '',
+			style.stroke ? attr('stroke-width', style.strokeWidthPx ?? 1) : '',
+			style.opacity !== undefined ? attr('opacity', style.opacity) : ''
 		]
 			.filter(Boolean)
 			.join(' ');
@@ -52,11 +52,11 @@ export class SvgRenderer implements Renderer {
 
 	polygon(points: [number, number][], style: FillStyle): void {
 		const attrs = [
-			`points="${points.map(([x, y]) => `${x},${y}`).join(' ')}"`,
-			`fill="${style.fill}"`,
-			style.stroke ? `stroke="${style.stroke}"` : '',
-			style.stroke ? `stroke-width="${style.strokeWidthPx ?? 1}"` : '',
-			style.opacity !== undefined ? `opacity="${style.opacity}"` : ''
+			attr('points', points.map(([x, y]) => `${x},${y}`).join(' ')),
+			attr('fill', style.fill),
+			style.stroke ? attr('stroke', style.stroke) : '',
+			style.stroke ? attr('stroke-width', style.strokeWidthPx ?? 1) : '',
+			style.opacity !== undefined ? attr('opacity', style.opacity) : ''
 		]
 			.filter(Boolean)
 			.join(' ');
@@ -65,36 +65,54 @@ export class SvgRenderer implements Renderer {
 
 	text(xy: [number, number], value: string, style: TextStyle): void {
 		const hasHalo = Boolean(style.haloColor && style.haloWidthPx);
-		const attrs = [
-			`x="${xy[0]}"`,
-			`y="${xy[1]}"`,
-			`font-family="${style.font.family}"`,
-			`font-size="${style.font.sizePx}"`,
-			style.font.weight ? `font-weight="${style.font.weight}"` : '',
-			style.font.style && style.font.style !== 'normal' ? `font-style="${style.font.style}"` : '',
-			`fill="${style.fill}"`,
-			`text-anchor="${svgAnchor(style.anchor)}"`,
-			`dominant-baseline="middle"`,
-			hasHalo ? `stroke="${style.haloColor}"` : '',
-			hasHalo ? `stroke-width="${(style.haloWidthPx as number) * 2}"` : '',
-			hasHalo ? `stroke-linejoin="round"` : '',
-			hasHalo ? `paint-order="stroke"` : ''
-		]
-			.filter(Boolean)
-			.join(' ');
-		this.elements.push(`<text ${attrs}>${escapeXml(value)}</text>`);
+		// SVG has no reliable cross-renderer equivalent of Canvas's
+		// textBaseline = 'middle': dominant-baseline="middle" is ignored by
+		// Inkscape, older librsvg, and several print pipelines, which fall
+		// back to the alphabetic baseline and sit visibly lower. Shifting y
+		// by a fixed fraction of the font size reproduces the same visual
+		// centering without depending on the attribute. 0.35 approximates a
+		// typical face's (ascent - descent) / 2 as a fraction of em size.
+		const baselineShift = 0.35 * style.font.sizePx;
+		const y = xy[1] + baselineShift;
+		const shared = [
+			attr('x', xy[0]),
+			attr('y', y),
+			attr('font-family', style.font.family),
+			attr('font-size', style.font.sizePx),
+			style.font.weight ? attr('font-weight', style.font.weight) : '',
+			style.font.style && style.font.style !== 'normal' ? attr('font-style', style.font.style) : '',
+			attr('text-anchor', svgAnchor(style.anchor))
+		];
+		const escaped = escapeXml(value);
+		if (hasHalo) {
+			// Two elements, stroke then fill, mirroring CanvasRenderer's
+			// strokeText-then-fillText draw order — the halo sits behind the
+			// glyph by construction rather than by paint-order support.
+			const strokeAttrs = [
+				...shared,
+				`fill="none"`,
+				attr('stroke', style.haloColor as string),
+				attr('stroke-width', (style.haloWidthPx as number) * 2),
+				`stroke-linejoin="round"`
+			]
+				.filter(Boolean)
+				.join(' ');
+			this.elements.push(`<text ${strokeAttrs}>${escaped}</text>`);
+		}
+		const fillAttrs = [...shared, attr('fill', style.fill)].filter(Boolean).join(' ');
+		this.elements.push(`<text ${fillAttrs}>${escaped}</text>`);
 	}
 
 	rect(x: number, y: number, w: number, h: number, style: RectStyle): void {
 		const attrs = [
-			`x="${x}"`,
-			`y="${y}"`,
-			`width="${w}"`,
-			`height="${h}"`,
-			`fill="${style.fill ?? 'none'}"`,
-			style.stroke ? `stroke="${style.stroke}"` : '',
-			style.stroke ? `stroke-width="${style.strokeWidthPx ?? 1}"` : '',
-			style.opacity !== undefined ? `opacity="${style.opacity}"` : ''
+			attr('x', x),
+			attr('y', y),
+			attr('width', w),
+			attr('height', h),
+			attr('fill', style.fill ?? 'none'),
+			style.stroke ? attr('stroke', style.stroke) : '',
+			style.stroke ? attr('stroke-width', style.strokeWidthPx ?? 1) : '',
+			style.opacity !== undefined ? attr('opacity', style.opacity) : ''
 		]
 			.filter(Boolean)
 			.join(' ');
@@ -118,6 +136,10 @@ function svgAnchor(anchor: TextStyle['anchor']): string {
 	if (anchor === 'middle') return 'middle';
 	if (anchor === 'end') return 'end';
 	return 'start';
+}
+
+function attr(name: string, value: string | number): string {
+	return `${name}="${escapeXml(String(value))}"`;
 }
 
 function escapeXml(value: string): string {

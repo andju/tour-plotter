@@ -79,6 +79,31 @@ test.describe('GPX export', () => {
 		expect(pngDimensions(buffer)).toEqual({ width: 4000, height: 4000 });
 	});
 
+	test('recovers from a zero width input instead of exporting blank', async ({ page }) => {
+		await loadFixtureTrack(page);
+
+		// Width only, entered directly rather than via setDimensions (which
+		// always fills both fields) — this is the out-of-range case item 20
+		// records: does the app corner-case a typed 0, or does it reach
+		// buildProjection and render blank?
+		const widthInput = page.locator('.export-panel input[type="number"]').nth(0);
+		await widthInput.fill('0');
+		await widthInput.dispatchEvent('change');
+
+		const canvas = page.locator('.preview-container canvas.map-layer');
+		await expect(page.getByText('Loading basemap…')).toHaveCount(0);
+		expect(await cornerPixelIsOpaque(canvas)).toBe(true);
+
+		const downloadPromise = page.waitForEvent('download');
+		await page.getByText('Export PNG').click();
+		const download = await downloadPromise;
+		const buffer = readFileSync(await download.path());
+
+		const { width, height } = pngDimensions(buffer);
+		expect(width).toBeGreaterThan(0);
+		expect(height).toBeGreaterThan(0);
+	});
+
 	test('exports an SVG carrying the requested width and height', async ({ page }) => {
 		await loadFixtureTrack(page);
 		await setDimensions(page, 1200, 800);
@@ -200,7 +225,9 @@ test.describe('basemap source', () => {
 		// the preview issues a fresh (now-failing) request. A small nudge
 		// wouldn't do it: tiles are cached per cover, and a framing change
 		// that resolves to the cover already in hand never hits the network.
-		const coverageInput = page.locator('input[type="number"]').nth(2);
+		// Selected by label rather than position: a page-wide number-input
+		// index drifts whenever an earlier one is added (see setDimensions).
+		const coverageInput = page.getByLabel('Minimum coverage (km)', { exact: true });
 		await coverageInput.fill('800');
 		await coverageInput.dispatchEvent('change');
 
@@ -217,31 +244,62 @@ test.describe('preview redraws', () => {
 		const preview = page.locator('.preview-container');
 		await expect(preview).toHaveAttribute('aria-busy', 'false');
 
-		const checkbox = page.locator('label.checkbox', { hasText: 'Show stats' }).locator('input');
-		await checkbox.click();
-
 		// Composing the scene costs ~250ms, so both the control the user
 		// touched and the busy badge have to be on screen before it starts —
-		// not after it finishes.
+		// not after it finishes. Playwright's auto-retrying assertions can
+		// only catch that if a poll happens to land while it's still true;
+		// a redraw fast enough to finish between polls would otherwise fail
+		// this test for being too fast. Record the actual DOM mutations
+		// instead, so the assertion holds regardless of how quickly the
+		// redraw completes.
+		await preview.evaluate((el) => {
+			const w = window as unknown as { __busyHistory: Array<{ busy: string; hasBadge: boolean }> };
+			const record = () => {
+				w.__busyHistory.push({
+					busy: el.getAttribute('aria-busy') ?? '',
+					hasBadge: el.textContent?.includes('Updating preview') ?? false
+				});
+			};
+			w.__busyHistory = [];
+			record();
+			new MutationObserver(record).observe(el, {
+				attributes: true,
+				attributeFilter: ['aria-busy'],
+				childList: true,
+				subtree: true,
+				characterData: true
+			});
+		});
+
+		const checkbox = page.locator('label.checkbox', { hasText: 'Show stats' }).locator('input');
+		await checkbox.click();
 		await expect(checkbox).not.toBeChecked();
-		await expect(preview).toHaveAttribute('aria-busy', 'true');
-		await expect(page.getByText('Updating preview…')).toBeVisible();
 
 		await expect(preview).toHaveAttribute('aria-busy', 'false');
 		await expect(page.getByText('Updating preview…')).toHaveCount(0);
+
+		const busyHistory = await preview.evaluate(
+			(el) => (window as unknown as { __busyHistory: Array<{ busy: string; hasBadge: boolean }> }).__busyHistory
+		);
+		expect(busyHistory.some((entry) => entry.busy === 'true')).toBe(true);
+		expect(busyHistory.some((entry) => entry.hasBadge)).toBe(true);
 	});
 
 	test('redraws without refetching tiles when an overlay-only setting changes', async ({ page }) => {
-		await loadFixtureTrack(page);
-		await expect(page.getByText('Export PNG')).toBeEnabled();
-
 		let tileRequests = 0;
 		page.on('request', (req) => {
 			if (req.url().includes('tiles.openfreemap.org')) tileRequests++;
 		});
 
+		await loadFixtureTrack(page);
+		await expect(page.getByText('Export PNG')).toBeEnabled();
+
 		const canvas = page.locator('.preview-container canvas.map-layer');
 		const before = await canvas.screenshot();
+
+		// Reset now that the initial load's own tile fetches are done, so
+		// only requests caused by the actions below are counted.
+		tileRequests = 0;
 
 		// None of these change the framing, so the basemap must not be
 		// refetched — but the preview still has to repaint.
@@ -260,16 +318,20 @@ test.describe('preview redraws', () => {
 	});
 
 	test('dragging a track width slider redraws live without refetching tiles', async ({ page }) => {
-		await loadFixtureTrack(page);
-		await expect(page.getByText('Export PNG')).toBeEnabled();
-
 		let tileRequests = 0;
 		page.on('request', (req) => {
 			if (req.url().includes('tiles.openfreemap.org')) tileRequests++;
 		});
 
+		await loadFixtureTrack(page);
+		await expect(page.getByText('Export PNG')).toBeEnabled();
+
 		const canvas = page.locator('.preview-container canvas.map-layer');
 		const before = await canvas.screenshot();
+
+		// Reset now that the initial load's own tile fetches are done, so
+		// only requests caused by the actions below are counted.
+		tileRequests = 0;
 
 		const widthSlider = page.locator('.width input[type="range"]');
 		await widthSlider.fill('10');

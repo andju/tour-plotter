@@ -3,6 +3,13 @@ import type { DetailBias } from '../render/detail';
 import { DEFAULT_MAP_STYLE, type MapStyleId } from '../render/palettes';
 import type { OverlayPosition } from '../render/scene';
 
+/**
+ * Reactive settings for the exported map image, backed by Svelte 5 runes.
+ *
+ * A single instance ({@link exportSettings}) is shared app-wide as the
+ * source of truth for both the live preview ({@link PreviewCanvas}) and the
+ * final render triggered from {@link ExportPanel}.
+ */
 class ExportSettingsState {
 	outputWidth = $state(1600);
 	outputHeight = $state(1200);
@@ -34,7 +41,9 @@ class ExportSettingsState {
 	/** Radius (km) the minimap frames around the tour; the top of its slider reaches a near-global view — see render/minimap.ts's ±84° latitude clamp. */
 	minimapCoverageKm = $state(5000);
 
+	readonly minDimensionPx = 1;
 	readonly maxDimensionPx = 4000;
+	readonly minCoverageFloorKm = 1;
 }
 
 export const exportSettings = new ExportSettingsState();

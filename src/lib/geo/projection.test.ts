@@ -53,6 +53,15 @@ describe('buildProjection', () => {
 		expect(p2.scale()).toBeCloseTo(p1.scale() * 2, 5);
 	});
 
+	it('throws on a zero-extent bbox instead of producing an Infinity scale', () => {
+		const point: Bbox = [13, 52, 13, 52];
+		expect(() => buildProjection(1000, 1000, point, 20)).toThrow();
+	});
+
+	it('throws when the margin leaves no room in the canvas', () => {
+		expect(() => buildProjection(100, 100, berlin, 60)).toThrow();
+	});
+
 	it('handles an antimeridian-wrapped bbox without collapsing to zero size', () => {
 		const wrapped: Bbox = [170, -5, -170, 5];
 		const width = 800;

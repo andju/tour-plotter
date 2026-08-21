@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bboxOfTracks, expandToMinimumCoverage, type Bbox } from './bbox';
+import { bboxOfTracks, expandToMinimumCoverage, normalizeLon, type Bbox } from './bbox';
 import type { Track, TrackPoint } from '../gpx/types';
 
 function point(lon: number, lat: number): TrackPoint {
@@ -32,6 +32,13 @@ describe('bboxOfTracks', () => {
 		expect(minLat).toBeCloseTo(-1, 3);
 		expect(maxLon).toBeCloseTo(1, 3);
 		expect(maxLat).toBeCloseTo(1, 3);
+	});
+});
+
+describe('normalizeLon', () => {
+	it('keeps both antimeridian representations stable', () => {
+		expect(normalizeLon(180)).toBe(180);
+		expect(normalizeLon(-180)).toBe(-180);
 	});
 });
 

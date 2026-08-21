@@ -1,3 +1,4 @@
+import { put } from '../../boundedCache';
 import type { Bbox } from '../../geo/bbox';
 import type { BasemapLayers, PlaceProperties } from '../types';
 import { decodeTile, type DecodedTile } from './decode';
@@ -5,6 +6,32 @@ import { tilesForBbox, type TileCoord } from './tiles';
 
 const TILEJSON_URL = 'https://tiles.openfreemap.org/planet';
 const ATTRIBUTION = 'OpenFreeMap · © OpenMapTiles · Data from OpenStreetMap';
+
+// Bounds every network request below so a hung connection (captive portal,
+// stalled mobile link, swallowing proxy) reaches the 'error' state instead
+// of leaving the UI stuck on "Loading basemap…" forever.
+const TILE_FETCH_TIMEOUT_MS = 15_000;
+
+/**
+ * Equivalent to `AbortSignal.timeout(ms)`, built from a plain `setTimeout`
+ * instead: Node's native `AbortSignal.timeout` schedules through an internal
+ * timer that fake-timer libraries (vitest's included) cannot reliably drive,
+ * which would leave the timeout path untestable without a real 15s wait.
+ */
+function timeoutSignal(ms: number): AbortSignal {
+	const controller = new AbortController();
+	setTimeout(() => controller.abort(new DOMException(`Timed out after ${ms}ms`, 'TimeoutError')), ms);
+	return controller.signal;
+}
+
+/**
+ * jsdom's `DOMException` (used in the test environment) doesn't extend
+ * `Error`, unlike Node's, so this checks `.name` directly rather than
+ * narrowing with `instanceof Error` first.
+ */
+function isTimeoutError(err: unknown): boolean {
+	return typeof err === 'object' && err !== null && 'name' in err && err.name === 'TimeoutError';
+}
 
 // The TileJSON embeds a build date in its tile URL template
 // (.../planet/<date>/{z}/{x}/{y}.pbf), so it's resolved once and reused
@@ -15,7 +42,7 @@ let tileUrlTemplatePromise: Promise<string> | null = null;
 
 function resolveTileUrlTemplate(fetchFn: typeof fetch): Promise<string> {
 	if (!tileUrlTemplatePromise) {
-		tileUrlTemplatePromise = fetchFn(TILEJSON_URL)
+		tileUrlTemplatePromise = fetchFn(TILEJSON_URL, { signal: timeoutSignal(TILE_FETCH_TIMEOUT_MS) })
 			.then((res) => {
 				if (!res.ok) throw new Error(`Failed to load OpenFreeMap TileJSON: ${res.status} ${res.statusText}`);
 				return res.json() as Promise<{ tiles: string[] }>;
@@ -27,6 +54,9 @@ function resolveTileUrlTemplate(fetchFn: typeof fetch): Promise<string> {
 			})
 			.catch((err) => {
 				tileUrlTemplatePromise = null;
+				if (isTimeoutError(err)) {
+					throw new Error(`Timed out after ${TILE_FETCH_TIMEOUT_MS / 1000}s loading OpenFreeMap TileJSON`);
+				}
 				throw err;
 			});
 	}
@@ -55,15 +85,6 @@ const MAX_CACHED_TILES = 96;
  */
 const coverCache = new Map<string, BasemapLayers>();
 const MAX_CACHED_COVERS = 8;
-
-/** Bounded insertion-order eviction — Map iterates oldest-first. */
-function put<T>(cache: Map<string, T>, key: string, value: T, max: number): void {
-	cache.set(key, value);
-	if (cache.size > max) {
-		const oldest = cache.keys().next().value;
-		if (oldest !== undefined) cache.delete(oldest);
-	}
-}
 
 /** Test seam: module-scope caches would otherwise leak between test cases. */
 export function clearOsmCaches(): void {
@@ -96,7 +117,17 @@ function tileUrl(template: string, coord: TileCoord): string {
 }
 
 async function fetchTile(template: string, coord: TileCoord, fetchFn: typeof fetch): Promise<ArrayBuffer> {
-	const res = await fetchFn(tileUrl(template, coord));
+	let res: Response;
+	try {
+		res = await fetchFn(tileUrl(template, coord), { signal: timeoutSignal(TILE_FETCH_TIMEOUT_MS) });
+	} catch (err) {
+		if (isTimeoutError(err)) {
+			throw new Error(
+				`Timed out after ${TILE_FETCH_TIMEOUT_MS / 1000}s loading tile ${coord.z}/${coord.x}/${coord.y}`
+			);
+		}
+		throw err;
+	}
 	if (!res.ok) {
 		throw new Error(`Failed to load tile ${coord.z}/${coord.x}/${coord.y}: ${res.status} ${res.statusText}`);
 	}

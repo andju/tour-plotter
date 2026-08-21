@@ -13,10 +13,9 @@ class TrackListState {
 				const text = await file.text();
 				const parsed = parseGpx(text, file.name);
 				const offset = this.tracks.length;
-				parsed.forEach((track, i) => {
-					track.style = defaultStyle(offset + i);
-				});
-				this.tracks.push(...parsed);
+				this.tracks.push(
+					...parsed.map((track, i) => ({ ...track, style: defaultStyle(offset + i) }))
+				);
 			} catch (err) {
 				newErrors.push(err instanceof GpxParseError ? err.message : `${file.name}: failed to parse`);
 			}

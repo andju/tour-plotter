@@ -113,4 +113,12 @@ describe('computeStats — duration', () => {
 
 		expect(computeStats(t).durationSeconds).toBe(30);
 	});
+
+	it('ignores a segment whose timestamps run backwards', () => {
+		const t = track([
+			[point(0, 0, null, '2026-01-01T08:00:30Z'), point(0, 1, null, '2026-01-01T08:00:00Z')]
+		]);
+
+		expect(computeStats(t).durationSeconds).toBeNull();
+	});
 });
