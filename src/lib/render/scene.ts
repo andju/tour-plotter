@@ -1,13 +1,15 @@
 import type { GeoProjection } from 'd3-geo';
+import type { CountryFeatureCollection } from '../basemap/countries';
 import type { PlaceCapital } from '../basemap/placeCapital';
 import { CITY_SIZE_CLASS_COUNT } from '../basemap/placeSize';
 import type { BasemapLayers, PlaceProperties } from '../basemap/types';
+import { buildTrackObstacles, layoutCountryLabels, type PlacedCountryLabel } from './countryLabels';
 import { bboxIntersects, featureBbox } from './cull';
 import type { Bbox } from '../geo/bbox';
 import { normalizeHex } from '../gpx/trackColors';
 import { trackToGeoJSON, type Track } from '../gpx/types';
 import { visibleAt, zoomForProjection, type DetailBias } from './detail';
-import { placeLabels, type LabelCandidate } from './labels';
+import { gridCellSize, placeLabels, LabelSpace, type LabelCandidate, type PlacedLabel } from './labels';
 import { parseRichText } from './markdown';
 import { buildInsetProjection, minimapBbox, minimapBox, minimapHeightPx, minimapMarker } from './minimap';
 import { placeSymbol, type PlaceSymbol } from './placeSymbol';
@@ -46,6 +48,8 @@ export interface SceneStyle {
 	cityDotFill: string;
 	textColor: string;
 	textHalo: string;
+	/** Country-name label colour — a muted, lower-contrast relative of textColor, so a country name reads as a background label rather than competing with city names for attention. */
+	countryLabelColor: string;
 	/** "You are here" marker on the minimap — a fixed Material Design red so it reads against every palette, not derived from textColor. */
 	minimapMarkerColor: string;
 	trackCasing: string;
@@ -70,6 +74,8 @@ export interface SceneStyle {
 		stats: number;
 		credit: number;
 		scaleBar: number;
+		/** Country-label font size range, interpolated by how much of the country's area is visible on canvas (render/countryLabels.ts) — unlike cityTiers, a taper rather than discrete steps, since it's driven by a continuous area fraction, not a handful of population classes. */
+		country: { min: number; max: number };
 	};
 	referenceMinimapPx: {
 		/** The inset's width; its height follows the framed extent's own aspect ratio (see minimap.ts's projectedAspect). */
@@ -100,6 +106,8 @@ export interface OverlaySettings {
 	showAdmin1: boolean;
 	showCredit: boolean;
 	showScaleBar: boolean;
+	/** Whether to label countries by name — see render/countryLabels.ts. Off by default: `SceneInput.countries` is a ~1.7MB lazy fetch, only worth paying for on demand. */
+	showCountryLabels: boolean;
 	detailBias: DetailBias;
 	/** City-label language code (see basemap/languages.ts); falls back to each place's default name when unsupported by the source. */
 	cityLabelLanguage: string;
@@ -143,6 +151,14 @@ export interface SceneInput {
 	 * same null-until-loaded/off lifecycle. See worldAdmin0.ts.
 	 */
 	worldAdmin0: GeoJSON.FeatureCollection | null;
+	/**
+	 * Country polygons backing country-name labels (render/countryLabels.ts —
+	 * never drawn as borders themselves, those still come from
+	 * `basemap.admin0`). Source-independent like `worldLand`/`worldAdmin0`
+	 * (needed even in OSM mode, whose tiles carry no country polygon), with
+	 * the same null-until-loaded/off lifecycle — see basemap/countries.ts.
+	 */
+	countries: CountryFeatureCollection | null;
 }
 
 /**
@@ -317,7 +333,33 @@ export function composeScenePhase(renderer: Renderer, input: SceneInput, phase: 
 	const mapBottom = input.outputHeight;
 	const pill = scaleBarPill(input, scale, mapBottom);
 
-	drawPlaces(renderer, input, scale, mapBottom);
+	// Cities are laid out (and their label space reserved) before country
+	// labels are even considered, so a country name can never be placed over
+	// a city dot or city label — see layoutCountryLabels' doc comment.
+	const places = layoutPlaces(input, scale, mapBottom);
+	const countryLabels =
+		overlay.showCountryLabels && input.countries
+			? layoutCountryLabels(
+					{
+						countries: input.countries,
+						projection,
+						visibleBbox,
+						measureTextWidth: input.measureTextWidth,
+						fontFamily: style.fontFamily,
+						fontSizePx: style.referenceFontSizePx.country
+					},
+					scale,
+					outputWidth,
+					mapBottom,
+					places.space,
+					buildTrackObstacles(tracks.filter((t) => t.style.visible), projection)
+				)
+			: [];
+
+	// Drawn under the city symbols/labels that were routed around it.
+	drawCountryLabels(renderer, countryLabels, style);
+	drawPlaceSymbols(renderer, places, style);
+	drawPlaceLabels(renderer, places, style);
 	drawBottomLeft(renderer, input, scale, mapBottom, pill);
 	drawCredit(renderer, input, scale, mapBottom);
 }
@@ -376,17 +418,31 @@ function capitalPriorityBoost(capital: PlaceCapital | undefined): number {
 	return 0;
 }
 
-function drawPlaces(renderer: Renderer, input: SceneInput, scale: number, mapBottom: number): void {
+interface PositionedPlace {
+	xy: [number, number];
+	symbol: PlaceSymbol;
+}
+
+interface PlacesLayout {
+	positioned: PositionedPlace[];
+	placed: PlacedLabel[];
+	/** Reserved city symbol/label boxes, reused by country labels (see `layoutCountryLabels`) so a country name can never land on a city dot or city label. */
+	space: LabelSpace;
+}
+
+/**
+ * Lays out city symbols and their labels, without drawing anything —
+ * split from drawing so the overlay phase can place country labels into
+ * this pass's leftover space (see composeScenePhase) before either is
+ * drawn to the renderer.
+ */
+function layoutPlaces(input: SceneInput, scale: number, mapBottom: number): PlacesLayout {
 	const { basemap, overlay, style, projection, measureTextWidth, outputWidth } = input;
 	const radiiPx = style.referenceCitySymbolRadiusPx.map((r) => r * scale);
 	const fontSizesPx = style.referenceFontSizePx.cityTiers.map((f) => f * scale);
 
-	interface Positioned {
-		xy: [number, number];
-		symbol: PlaceSymbol;
-	}
 	const candidates: LabelCandidate[] = [];
-	const positioned: Positioned[] = [];
+	const positioned: PositionedPlace[] = [];
 
 	(basemap.places.features as GeoJSON.Feature<GeoJSON.Point, PlaceProperties>[]).forEach((feature, i) => {
 		const { size, rank, capital } = feature.properties;
@@ -414,22 +470,46 @@ function drawPlaces(renderer: Renderer, input: SceneInput, scale: number, mapBot
 
 	// Smallest first, largest last, so a prominent symbol always sits on top where two overlap.
 	positioned.sort((a, b) => a.symbol.anchorRadiusPx - b.symbol.anchorRadiusPx);
-	for (const { xy, symbol } of positioned) {
-		drawSymbol(renderer, xy, symbol, style);
-	}
 
+	const space = new LabelSpace(gridCellSize(candidates));
 	const placed = placeLabels(
 		candidates,
 		(text, fontSizePx) => measureTextWidth(text, { sizePx: fontSizePx, family: style.fontFamily }),
 		outputWidth,
-		mapBottom
+		mapBottom,
+		space
 	);
-	for (const label of placed) {
+
+	return { positioned, placed, space };
+}
+
+function drawPlaceSymbols(renderer: Renderer, layout: PlacesLayout, style: SceneStyle): void {
+	for (const { xy, symbol } of layout.positioned) {
+		drawSymbol(renderer, xy, symbol, style);
+	}
+}
+
+function drawPlaceLabels(renderer: Renderer, layout: PlacesLayout, style: SceneStyle): void {
+	for (const label of layout.placed) {
 		const font: Font = { sizePx: label.fontSizePx, family: style.fontFamily };
 		renderer.text(label.textXy, label.text, {
 			font,
 			fill: style.textColor,
 			anchor: 'start',
+			haloColor: style.textHalo,
+			haloWidthPx: label.fontSizePx * 0.15
+		});
+	}
+}
+
+/** Draws country-name labels — see render/countryLabels.ts for placement. Uppercase, atlas-convention styling, anchored/centred on the placed point. */
+function drawCountryLabels(renderer: Renderer, labels: PlacedCountryLabel[], style: SceneStyle): void {
+	for (const label of labels) {
+		const font: Font = { sizePx: label.fontSizePx, family: style.fontFamily };
+		renderer.text(label.xy, label.text, {
+			font,
+			fill: style.countryLabelColor,
+			anchor: 'middle',
 			haloColor: style.textHalo,
 			haloWidthPx: label.fontSizePx * 0.15
 		});

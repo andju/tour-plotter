@@ -14,6 +14,7 @@ export const DEFAULT_SCENE_STYLE: SceneStyle = {
 	cityDotFill: '#5b5546',
 	textColor: '#4a4a42',
 	textHalo: '#ffffff',
+	countryLabelColor: '#8f8878',
 	minimapMarkerColor: '#f44336',
 	trackCasing: '#ffffff',
 	scaleBarColor: '#4a4a42',
@@ -33,7 +34,8 @@ export const DEFAULT_SCENE_STYLE: SceneStyle = {
 		title: 28,
 		stats: 14,
 		credit: 10,
-		scaleBar: 11
+		scaleBar: 11,
+		country: { min: 13, max: 24 }
 	},
 	referenceMinimapPx: {
 		width: 180,

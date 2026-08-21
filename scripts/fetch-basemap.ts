@@ -98,6 +98,21 @@ const LAYERS: Layer[] = [
 		keepProperties: []
 	},
 	{
+		// Country polygons — never drawn (the borders on the map still come
+		// from admin0-borders.json's lines), used only so country-name
+		// labels (render/countryLabels.ts) know how much of each country is
+		// actually on screen and where its interior is. Same 50m source as
+		// admin0-borders.json, so a label can never land on the wrong side
+		// of a border that's actually drawn. This layer's properties are
+		// upper-cased like populated-places, unlike every other physical
+		// layer above — and unlike populated-places, it carries no
+		// per-language name columns, so country labels always use `NAME`.
+		src: '50m/cultural/ne_50m_admin_0_countries.json',
+		out: 'countries.json',
+		keepProperties: ['NAME'],
+		renameProperties: { NAME: 'name' }
+	},
+	{
 		// The non-"simple" layer, unlike ne_50m_populated_places_simple.json,
 		// carries per-language name columns (NAME_EN, NAME_DE, ...) needed for
 		// the city-label language picker; see languages.ts.

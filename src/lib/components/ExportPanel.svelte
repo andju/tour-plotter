@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { loadBasemap } from '$lib/basemap/loadBasemap';
+	import { loadCountries } from '$lib/basemap/countries';
 	import { SUPPORTED_LANGUAGES, type LanguageCode } from '$lib/basemap/languages';
 	import { CITY_SIZE_MAX, populationLabel } from '$lib/basemap/placeSize';
 	import { loadWorldAdmin0 } from '$lib/basemap/worldAdmin0';
@@ -65,10 +66,11 @@
 		});
 		if (!framing) return null;
 
-		const [basemap, worldLand, worldAdmin0] = await Promise.all([
+		const [basemap, worldLand, worldAdmin0, countries] = await Promise.all([
 			loadBasemap(exportSettings.basemapSource, framing.visibleBbox, framing.zoom, fetch),
 			exportSettings.showMinimap ? loadWorldLand(fetch) : Promise.resolve(null),
-			exportSettings.showMinimap ? loadWorldAdmin0(fetch) : Promise.resolve(null)
+			exportSettings.showMinimap ? loadWorldAdmin0(fetch) : Promise.resolve(null),
+			exportSettings.showCountryLabels ? loadCountries(fetch) : Promise.resolve(null)
 		]);
 
 		return buildSceneInput({
@@ -80,6 +82,7 @@
 			showAdmin1: exportSettings.showAdmin1,
 			showCredit: exportSettings.showCredit,
 			showScaleBar: exportSettings.showScaleBar,
+			showCountryLabels: exportSettings.showCountryLabels,
 			showStats: exportSettings.showStats,
 			title: exportSettings.title,
 			titlePosition: exportSettings.titlePosition,
@@ -89,7 +92,8 @@
 			minimapPosition: exportSettings.minimapPosition,
 			minimapCoverageKm: exportSettings.minimapCoverageKm,
 			worldLand,
-			worldAdmin0
+			worldAdmin0,
+			countries
 		});
 	}
 
@@ -340,6 +344,14 @@
 			onchange={(e) => (exportSettings.showAdmin1 = (e.target as HTMLInputElement).checked)}
 		/>
 		State / province borders
+	</label>
+	<label class="checkbox">
+		<input
+			type="checkbox"
+			checked={exportSettings.showCountryLabels}
+			onchange={(e) => (exportSettings.showCountryLabels = (e.target as HTMLInputElement).checked)}
+		/>
+		Country names
 	</label>
 	<label class="checkbox">
 		<input

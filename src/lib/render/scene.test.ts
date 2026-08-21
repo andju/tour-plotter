@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { CountryFeatureCollection } from '../basemap/countries';
 import type { BasemapLayers, PlaceProperties } from '../basemap/types';
 import type { Bbox } from '../geo/bbox';
 import { buildProjection, visibleBbox } from '../geo/projection';
@@ -26,6 +27,7 @@ const style: SceneStyle = {
 	cityDotFill: '#000000',
 	textColor: '#111111',
 	textHalo: '#ffffff',
+	countryLabelColor: '#888888',
 	minimapMarkerColor: '#f44336',
 	trackCasing: '#ffffff',
 	scaleBarColor: '#111111',
@@ -33,7 +35,14 @@ const style: SceneStyle = {
 	monoFontFamily: 'monospace',
 	referenceStrokeWidthPx: { coastline: 2, water: 1, waterway: 1, admin0: 1.5, admin1: 1, trackCasingExtra: 2 },
 	referenceCitySymbolRadiusPx: [6, 4.5, 3.2, 2.2, 1.5],
-	referenceFontSizePx: { cityTiers: [13, 11.5, 10, 9, 8.5], title: 24, stats: 14, credit: 10, scaleBar: 10 },
+	referenceFontSizePx: {
+		cityTiers: [13, 11.5, 10, 9, 8.5],
+		title: 24,
+		stats: 14,
+		credit: 10,
+		scaleBar: 10,
+		country: { min: 13, max: 24 }
+	},
 	referenceMinimapPx: {
 		width: 60,
 		innerMarginPx: 4,
@@ -199,6 +208,7 @@ const overlay: OverlaySettings = {
 	showAdmin1: true,
 	showCredit: true,
 	showScaleBar: true,
+	showCountryLabels: false,
 	detailBias: 'rich',
 	cityLabelLanguage: 'en',
 	citySize: 10,
@@ -214,6 +224,7 @@ interface SceneInputOverrides {
 	overlay?: Partial<OverlaySettings>;
 	worldLand?: GeoJSON.FeatureCollection | null;
 	worldAdmin0?: GeoJSON.FeatureCollection | null;
+	countries?: SceneInput['countries'];
 }
 
 function sceneInputAt(outputWidth: number, outputHeight: number, overrides: SceneInputOverrides = {}): SceneInput {
@@ -231,7 +242,8 @@ function sceneInputAt(outputWidth: number, outputHeight: number, overrides: Scen
 		style,
 		measureTextWidth,
 		worldLand: overrides.worldLand ?? null,
-		worldAdmin0: overrides.worldAdmin0 ?? null
+		worldAdmin0: overrides.worldAdmin0 ?? null,
+		countries: overrides.countries ?? null
 	};
 }
 
@@ -327,7 +339,8 @@ describe('composeScene — layer toggles', () => {
 			style,
 			measureTextWidth,
 			worldLand: null,
-			worldAdmin0: null
+			worldAdmin0: null,
+			countries: null
 		});
 		const svg = renderer.serialize();
 		// Coastline (from land fill/stroke split) + water + waterway + admin0
@@ -351,7 +364,8 @@ describe('composeScene — layer toggles', () => {
 			style,
 			measureTextWidth,
 			worldLand: null,
-			worldAdmin0: null
+			worldAdmin0: null,
+			countries: null
 		});
 		expect(renderer.serialize()).not.toContain(hidden.style.color);
 	});
@@ -372,7 +386,8 @@ describe('composeScene — layer toggles', () => {
 			style,
 			measureTextWidth,
 			worldLand: null,
-			worldAdmin0: null
+			worldAdmin0: null,
+			countries: null
 		});
 		// Only the waterway line and admin0 border should carry a stroke —
 		// the water polygon must be fill-only.
@@ -421,7 +436,8 @@ describe('composeScene — viewport culling', () => {
 			style,
 			measureTextWidth,
 			worldLand: null,
-			worldAdmin0: null
+			worldAdmin0: null,
+			countries: null
 		});
 		const urbanPaths = [...renderer.serialize().matchAll(new RegExp(`fill="${style.urbanFill}"`, 'g'))];
 		expect(urbanPaths).toHaveLength(1);
@@ -444,7 +460,8 @@ describe('composeScene — places', () => {
 			style,
 			measureTextWidth,
 			worldLand: null,
-			worldAdmin0: null
+			worldAdmin0: null,
+			countries: null
 		});
 		return renderer.serialize();
 	}
@@ -476,7 +493,8 @@ describe('composeScene — places', () => {
 			style,
 			measureTextWidth,
 			worldLand: null,
-			worldAdmin0: null
+			worldAdmin0: null,
+			countries: null
 		});
 		const svg = renderer.serialize();
 		expect(svg).toContain('Kept');
@@ -582,7 +600,8 @@ describe('composeScene — places', () => {
 				style,
 				measureTextWidth,
 				worldLand: null,
-				worldAdmin0: null
+				worldAdmin0: null,
+				countries: null
 			});
 			const points = renderer.serialize().match(/<polygon points="([^"]+)"/)![1];
 			return points.split(' ').map((pair) => pair.split(',').map(Number) as [number, number]);
@@ -595,6 +614,82 @@ describe('composeScene — places', () => {
 			expect(large[i][0]).toBeCloseTo(sx * 2, 4);
 			expect(large[i][1]).toBeCloseTo(sy * 2, 4);
 		});
+	});
+});
+
+describe('composeScene — country labels', () => {
+	function countryFixture(name: string): CountryFeatureCollection {
+		return {
+			type: 'FeatureCollection',
+			features: [
+				{
+					type: 'Feature',
+					properties: { name },
+					geometry: {
+						type: 'Polygon',
+						coordinates: [
+							[
+								[13.0, 52.0],
+								[13.5, 52.0],
+								[13.5, 52.5],
+								[13.0, 52.5],
+								[13.0, 52.0]
+							]
+						]
+					}
+				}
+			]
+		};
+	}
+
+	function countryFontSize(svg: string): number {
+		const match = svg.match(/<text([^>]*)>FRANCE<\/text>/);
+		expect(match).not.toBeNull();
+		const fontSize = match![1].match(/font-size="([^"]+)"/);
+		expect(fontSize).not.toBeNull();
+		return Number(fontSize![1]);
+	}
+
+	it('draws nothing when showCountryLabels is off, even with country data loaded', () => {
+		const svg = renderAt(1000, 1000, {
+			overlay: { ...overlay, showCountryLabels: false },
+			countries: countryFixture('France')
+		});
+		expect(svg).not.toContain('FRANCE');
+	});
+
+	it('draws the uppercased country name when showCountryLabels is on', () => {
+		const svg = renderAt(1000, 1000, {
+			overlay: { ...overlay, showCountryLabels: true },
+			countries: countryFixture('France')
+		});
+		expect(svg).toContain('>FRANCE<');
+	});
+
+	it('draws country labels before (under) city labels', () => {
+		// naturalEarthBasemap()'s default fixture already carries a
+		// 'Testville' place at the same coordinates the country fixture
+		// covers — reused here rather than overriding `basemap`, which
+		// `sceneInputAt` doesn't support (see `SceneInputOverrides`).
+		const svg = renderAt(1000, 1000, {
+			overlay: { ...overlay, showCountryLabels: true, citySize: 10 },
+			countries: countryFixture('France')
+		});
+		expect(svg.indexOf('>FRANCE<')).toBeGreaterThanOrEqual(0);
+		expect(svg.indexOf('Testville')).toBeGreaterThanOrEqual(0);
+		expect(svg.indexOf('>FRANCE<')).toBeLessThan(svg.indexOf('Testville'));
+	});
+
+	it('doubles country label font size at double the output resolution (scale invariant)', () => {
+		const small = renderAt(500, 500, {
+			overlay: { ...overlay, showCountryLabels: true },
+			countries: countryFixture('France')
+		});
+		const large = renderAt(1000, 1000, {
+			overlay: { ...overlay, showCountryLabels: true },
+			countries: countryFixture('France')
+		});
+		expect(countryFontSize(large)).toBeCloseTo(countryFontSize(small) * 2, 1);
 	});
 });
 
@@ -803,7 +898,8 @@ describe('composeScene — title background', () => {
 			style,
 			measureTextWidth,
 			worldLand: null,
-			worldAdmin0: null
+			worldAdmin0: null,
+			countries: null
 		});
 		expect(renderer.serialize()).not.toContain(`fill="${titleBackgroundFill}"`);
 	});

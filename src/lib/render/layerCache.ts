@@ -66,7 +66,7 @@ export function basemapLayerKey(input: SceneInput): string {
  * every keystroke even though 'overlay' itself doesn't draw it.
  */
 export function overlayLayerKey(input: SceneInput): string {
-	const { outputWidth, outputHeight, marginPx, projection, basemap, overlay, style } = input;
+	const { outputWidth, outputHeight, marginPx, projection, basemap, overlay, style, countries, tracks } = input;
 	return [
 		outputWidth,
 		outputHeight,
@@ -78,7 +78,19 @@ export function overlayLayerKey(input: SceneInput): string {
 		overlay.citySize,
 		overlay.showCredit,
 		overlay.showScaleBar,
-		overlay.statsText
+		overlay.statsText,
+		overlay.showCountryLabels,
+		overlay.showCountryLabels && countries ? identityToken(countries) : null,
+		// Country labels route around visible tracks (see countryLabels.ts),
+		// so track geometry only belongs in this key while the toggle is on —
+		// otherwise every track edit would bust the label bitmap for a layer
+		// that isn't even being drawn.
+		overlay.showCountryLabels
+			? tracks
+					.filter((t) => t.style.visible)
+					.map((t) => identityToken(t.segments))
+					.join(',')
+			: null
 	].join('|');
 }
 

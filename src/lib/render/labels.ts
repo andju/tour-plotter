@@ -52,19 +52,17 @@ export function placeLabels(
 	candidates: LabelCandidate[],
 	measureWidth: (text: string, fontSizePx: number) => number,
 	canvasWidth: number,
-	canvasHeight: number
+	canvasHeight: number,
+	space: LabelSpace = new LabelSpace(gridCellSize(candidates))
 ): PlacedLabel[] {
 	const sorted = [...candidates].sort((a, b) => a.priority - b.priority);
 	const placed: PlacedLabel[] = [];
-	const boxes: Box[] = [];
-	const grid = new ReservedBoxGrid(gridCellSize(sorted));
 
 	for (const candidate of sorted) {
 		const { fontSizePx } = candidate;
 		const anchorRadiusPx = candidate.anchorRadiusPx ?? 0;
 		if (anchorRadiusPx) {
-			const marker = markerBox(candidate.xy, anchorRadiusPx);
-			grid.insert(marker, boxes.push(marker) - 1);
+			space.insert(markerBox(candidate.xy, anchorRadiusPx));
 		}
 
 		const offsetPx = anchorRadiusPx + fontSizePx * 0.5;
@@ -79,16 +77,16 @@ export function placeLabels(
 		};
 
 		if (box.x0 < 0 || box.y0 < 0 || box.x1 > canvasWidth || box.y1 > canvasHeight) continue;
-		if (grid.query(box).some((index) => overlaps(boxes[index], box))) continue;
+		if (space.collides(box)) continue;
 
-		grid.insert(box, boxes.push(box) - 1);
+		space.insert(box);
 		placed.push({ id: candidate.id, dotXy: candidate.xy, text: candidate.text, textXy, fontSizePx });
 	}
 
 	return placed;
 }
 
-interface Box {
+export interface Box {
 	x0: number;
 	y0: number;
 	x1: number;
@@ -103,8 +101,32 @@ function markerBox(xy: [number, number], anchorRadiusPx: number): Box {
 	return { x0: xy[0] - anchorRadiusPx, y0: xy[1] - anchorRadiusPx, x1: xy[0] + anchorRadiusPx, y1: xy[1] + anchorRadiusPx };
 }
 
+/**
+ * Reserved boxes shared across more than one placement pass — e.g. city
+ * labels placed first, then country labels routed around whatever the
+ * cities left free (see countryLabels.ts). A fresh `LabelSpace` is created
+ * by `placeLabels` itself when the caller has only one pass and doesn't
+ * need to share it.
+ */
+export class LabelSpace {
+	private readonly boxes: Box[] = [];
+	private readonly grid: ReservedBoxGrid;
+
+	constructor(cellSize: number) {
+		this.grid = new ReservedBoxGrid(cellSize);
+	}
+
+	insert(box: Box): void {
+		this.grid.insert(box, this.boxes.push(box) - 1);
+	}
+
+	collides(box: Box): boolean {
+		return this.grid.query(box).some((index) => overlaps(this.boxes[index], box));
+	}
+}
+
 /** A multiple of the median candidate font size — a proxy for typical box dimensions. */
-function gridCellSize(candidates: LabelCandidate[]): number {
+export function gridCellSize(candidates: LabelCandidate[]): number {
 	if (candidates.length === 0) return 32;
 	const sizes = [...candidates.map((c) => c.fontSizePx)].sort((a, b) => a - b);
 	const mid = Math.floor(sizes.length / 2);

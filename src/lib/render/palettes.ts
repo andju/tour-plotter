@@ -37,6 +37,7 @@ type PaletteColors = Pick<
 	| 'cityDotFill'
 	| 'textColor'
 	| 'textHalo'
+	| 'countryLabelColor'
 	| 'trackCasing'
 	| 'scaleBarColor'
 >;
@@ -61,6 +62,7 @@ const LIBERTY = palette({
 	cityDotFill: '#3b4a6b',
 	textColor: '#333333',
 	textHalo: '#ffffff',
+	countryLabelColor: '#75798a',
 	trackCasing: '#ffffff',
 	scaleBarColor: '#333333'
 });
@@ -81,6 +83,7 @@ const BRIGHT = palette({
 	cityDotFill: '#495e91',
 	textColor: '#333333',
 	textHalo: '#ffffff',
+	countryLabelColor: '#82869c',
 	trackCasing: '#ffffff',
 	scaleBarColor: '#333333'
 });
@@ -101,6 +104,7 @@ const POSITRON = palette({
 	cityDotFill: '#4d4d4d',
 	textColor: '#3d3d3d',
 	textHalo: '#ffffff',
+	countryLabelColor: '#9a9d94',
 	trackCasing: '#ffffff',
 	scaleBarColor: '#3d3d3d'
 });
@@ -121,6 +125,7 @@ const DARK = palette({
 	cityDotFill: '#b4b4b4',
 	textColor: '#d5d5d5',
 	textHalo: '#0c0c0c',
+	countryLabelColor: '#8a8a8a',
 	trackCasing: '#3a3a3a',
 	scaleBarColor: '#d5d5d5'
 });
@@ -144,6 +149,7 @@ const FIORD = palette({
 	cityDotFill: '#b3c9d1',
 	textColor: '#cfe0e8',
 	textHalo: '#1b2547',
+	countryLabelColor: '#8fa4c2',
 	trackCasing: '#2c3550',
 	scaleBarColor: '#cfe0e8'
 });

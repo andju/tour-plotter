@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { loadCountries } from '$lib/basemap/countries';
 	import { loadBasemap } from '$lib/basemap/loadBasemap';
 	import type { BasemapLayers } from '$lib/basemap/types';
 	import { loadWorldAdmin0 } from '$lib/basemap/worldAdmin0';
@@ -168,6 +169,18 @@
 			.catch((err) => console.error('Failed to load minimap admin0 data', err));
 	});
 
+	// Country polygons backing country-name labels — same lazy/retry pattern
+	// as worldLand/worldAdmin0 above, gated on its own checkbox instead of
+	// the minimap's.
+	let countries = $state.raw<Awaited<ReturnType<typeof loadCountries>> | null>(null);
+
+	$effect(() => {
+		if (!exportSettings.showCountryLabels || countries) return;
+		loadCountries(fetch)
+			.then((fc) => (countries = fc))
+			.catch((err) => console.error('Failed to load country label data', err));
+	});
+
 	// True from the moment a redraw is scheduled until the canvas has been
 	// repainted. Drives the busy badge — composing the 'basemap'/'overlay'
 	// phases from scratch costs ~250ms at preview size, which is far too long
@@ -203,6 +216,7 @@
 			showAdmin1: exportSettings.showAdmin1,
 			showCredit: exportSettings.showCredit,
 			showScaleBar: exportSettings.showScaleBar,
+			showCountryLabels: exportSettings.showCountryLabels,
 			showStats: exportSettings.showStats,
 			title,
 			titlePosition: exportSettings.titlePosition,
@@ -212,7 +226,8 @@
 			minimapPosition: exportSettings.minimapPosition,
 			minimapCoverageKm: exportSettings.minimapCoverageKm,
 			worldLand,
-			worldAdmin0
+			worldAdmin0,
+			countries
 		};
 	}
 

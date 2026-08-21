@@ -33,6 +33,8 @@ class ExportSettingsState {
 	showAdmin1 = $state(true);
 	showCredit = $state(true);
 	showScaleBar = $state(true);
+	/** Off by default: country polygons are a ~1.7MB lazy fetch, only worth paying for on demand. See render/countryLabels.ts. */
+	showCountryLabels = $state(false);
 	title = $state('');
 	titlePosition: OverlayPosition = $state('top-center');
 	showStats = $state(true);

@@ -343,6 +343,35 @@ test.describe('preview redraws', () => {
 		expect(tileRequests).toBe(0);
 	});
 
+	test('enabling country names redraws the preview and still exports at the requested size', async ({ page }) => {
+		let tileRequests = 0;
+		page.on('request', (req) => {
+			if (req.url().includes('tiles.openfreemap.org')) tileRequests++;
+		});
+
+		await loadFixtureTrack(page);
+		await setDimensions(page, 1600, 1200);
+		await expect(page.getByText('Export PNG')).toBeEnabled();
+
+		const canvas = page.locator('.preview-container canvas.map-layer');
+		const before = await canvas.screenshot();
+		tileRequests = 0;
+
+		await page.getByText('Country names').click();
+
+		await expect
+			.poll(async () => Buffer.compare(await canvas.screenshot(), before))
+			.not.toBe(0);
+		expect(tileRequests).toBe(0);
+		expect(await cornerPixelIsOpaque(canvas)).toBe(true);
+
+		const downloadPromise = page.waitForEvent('download');
+		await page.getByText('Export PNG').click();
+		const download = await downloadPromise;
+		const buffer = readFileSync(await download.path());
+		expect(pngDimensions(buffer)).toEqual({ width: 1600, height: 1200 });
+	});
+
 	test('picking a track color swatch redraws live', async ({ page }) => {
 		await loadFixtureTrack(page);
 		await expect(page.getByText('Export PNG')).toBeEnabled();

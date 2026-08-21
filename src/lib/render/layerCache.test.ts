@@ -20,6 +20,7 @@ const style: SceneStyle = {
 	cityDotFill: '#000000',
 	textColor: '#111111',
 	textHalo: '#ffffff',
+	countryLabelColor: '#888888',
 	minimapMarkerColor: '#f44336',
 	trackCasing: '#ffffff',
 	scaleBarColor: '#111111',
@@ -27,7 +28,14 @@ const style: SceneStyle = {
 	monoFontFamily: 'monospace',
 	referenceStrokeWidthPx: { coastline: 2, water: 1, waterway: 1, admin0: 1.5, admin1: 1, trackCasingExtra: 2 },
 	referenceCitySymbolRadiusPx: [6, 4.5, 3.2, 2.2, 1.5],
-	referenceFontSizePx: { cityTiers: [13, 11.5, 10, 9, 8.5], title: 24, stats: 14, credit: 10, scaleBar: 10 },
+	referenceFontSizePx: {
+		cityTiers: [13, 11.5, 10, 9, 8.5],
+		title: 24,
+		stats: 14,
+		credit: 10,
+		scaleBar: 10,
+		country: { min: 13, max: 24 }
+	},
 	referenceMinimapPx: {
 		width: 60,
 		innerMarginPx: 4,
@@ -63,6 +71,7 @@ const overlay: OverlaySettings = {
 	showAdmin1: true,
 	showCredit: true,
 	showScaleBar: true,
+	showCountryLabels: false,
 	detailBias: 'rich',
 	cityLabelLanguage: 'en',
 	citySize: 5,
@@ -95,6 +104,7 @@ function sceneInput(overrides: Partial<SceneInput> = {}): SceneInput {
 		measureTextWidth,
 		worldLand: null,
 		worldAdmin0: null,
+		countries: null,
 		...overrides
 	};
 }
@@ -104,6 +114,10 @@ function worldLandFixture(): GeoJSON.FeatureCollection {
 }
 
 function worldAdmin0Fixture(): GeoJSON.FeatureCollection {
+	return { type: 'FeatureCollection', features: [] };
+}
+
+function countriesFixture(): SceneInput['countries'] {
 	return { type: 'FeatureCollection', features: [] };
 }
 
@@ -177,6 +191,16 @@ describe('basemapLayerKey', () => {
 		const edited = sceneInput({ ...base, style: { ...style } });
 		expect(basemapLayerKey(edited)).not.toBe(basemapLayerKey(base));
 	});
+
+	it('is unaffected by showCountryLabels or the countries data — that belongs to the overlay layer', () => {
+		const base = sceneInput();
+		const edited = sceneInput({
+			...base,
+			overlay: { ...overlay, showCountryLabels: true },
+			countries: countriesFixture()
+		});
+		expect(basemapLayerKey(edited)).toBe(basemapLayerKey(base));
+	});
 });
 
 describe('overlayLayerKey', () => {
@@ -246,6 +270,39 @@ describe('overlayLayerKey', () => {
 	it('changes for a new style object (e.g. a map style switch)', () => {
 		const base = sceneInput();
 		const edited = sceneInput({ ...base, style: { ...style } });
+		expect(overlayLayerKey(edited)).not.toBe(overlayLayerKey(base));
+	});
+
+	it('changes when showCountryLabels toggles', () => {
+		const base = sceneInput();
+		const edited = sceneInput({ ...base, overlay: { ...overlay, showCountryLabels: true } });
+		expect(overlayLayerKey(edited)).not.toBe(overlayLayerKey(base));
+	});
+
+	it('changes for a new countries object while showCountryLabels is on', () => {
+		const withCountries = { overlay: { ...overlay, showCountryLabels: true }, countries: countriesFixture() };
+		const base = sceneInput(withCountries);
+		const edited = sceneInput({ ...withCountries, countries: countriesFixture() });
+		expect(overlayLayerKey(edited)).not.toBe(overlayLayerKey(base));
+	});
+
+	it('is unaffected by a track edit while showCountryLabels is off, even though country labels would route around tracks', () => {
+		const base = sceneInput();
+		const edited = sceneInput({
+			...base,
+			tracks: [{ ...base.tracks[0], segments: [[{ lon: 13.2, lat: 52.2, ele: null, time: null }]] }]
+		});
+		expect(overlayLayerKey(edited)).toBe(overlayLayerKey(base));
+	});
+
+	it('changes for a track edit while showCountryLabels is on — country labels route around tracks', () => {
+		const withCountries = { overlay: { ...overlay, showCountryLabels: true }, countries: countriesFixture() };
+		const base = sceneInput(withCountries);
+		const edited = sceneInput({
+			...base,
+			...withCountries,
+			tracks: [{ ...base.tracks[0], segments: [[{ lon: 13.2, lat: 52.2, ele: null, time: null }]] }]
+		});
 		expect(overlayLayerKey(edited)).not.toBe(overlayLayerKey(base));
 	});
 });

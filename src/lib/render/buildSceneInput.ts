@@ -1,4 +1,5 @@
 import type { GeoProjection } from 'd3-geo';
+import type { CountryFeatureCollection } from '../basemap/countries';
 import type { BasemapLayers } from '../basemap/types';
 import { bboxOfTracks, expandToMinimumCoverage, type Bbox } from '../geo/bbox';
 import { buildProjection, visibleBbox } from '../geo/projection';
@@ -74,6 +75,7 @@ export interface BuildSceneOptions {
 	showAdmin1: boolean;
 	showCredit: boolean;
 	showScaleBar: boolean;
+	showCountryLabels: boolean;
 	showStats: boolean;
 	title: string;
 	titlePosition: OverlayPosition;
@@ -86,6 +88,8 @@ export interface BuildSceneOptions {
 	worldLand: GeoJSON.FeatureCollection | null;
 	/** Coarse world admin0 borders backing the minimap inset — see SceneInput's doc comment. */
 	worldAdmin0: GeoJSON.FeatureCollection | null;
+	/** Country polygons backing country-name labels — see SceneInput's doc comment. */
+	countries: CountryFeatureCollection | null;
 }
 
 /**
@@ -114,6 +118,7 @@ export function buildSceneInput(opts: BuildSceneOptions): SceneInput {
 			showAdmin1: opts.showAdmin1,
 			showCredit: opts.showCredit,
 			showScaleBar: opts.showScaleBar,
+			showCountryLabels: opts.showCountryLabels,
 			detailBias: opts.detailBias,
 			cityLabelLanguage: opts.cityLabelLanguage,
 			citySize: opts.citySize,
@@ -124,6 +129,7 @@ export function buildSceneInput(opts: BuildSceneOptions): SceneInput {
 		style: sceneStyleFor(opts.mapStyle),
 		measureTextWidth,
 		worldLand: opts.worldLand,
-		worldAdmin0: opts.worldAdmin0
+		worldAdmin0: opts.worldAdmin0,
+		countries: opts.countries
 	};
 }
