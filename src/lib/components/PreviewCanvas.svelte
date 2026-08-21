@@ -243,13 +243,14 @@
 		// Everything the scene depends on is read here, synchronously, inside
 		// the effect's tracking window — the draw itself may happen two frames
 		// later, long after that window has closed, so anything read there
-		// would be invisible to reactivity. Per-track style fields are only
-		// otherwise dereferenced deep inside composeScenePhase, so clone `style`
-		// to force those reads in here too. buildSceneInput is ~0.1ms, so
-		// running it up front costs nothing. Title is deliberately blank —
+		// would be invisible to reactivity. This used to need a per-track
+		// clone to force reactive reads of style fields (which are otherwise
+		// only dereferenced deep inside composeScenePhase), but `trackList.tracks`
+		// is now `$state.raw` (see tracks.svelte.ts): every style edit assigns a
+		// whole new array, so reading `trackList.visibleTracks` here is itself
+		// the dependency and no clone is needed. Title is deliberately blank —
 		// see this effect's doc comment above.
-		const visibleTracks = trackList.visibleTracks.map((t) => ({ ...t, style: { ...t.style } }));
-		const scene = buildSceneInput({ ...sceneOptions(current, ''), visibleTracks });
+		const scene = buildSceneInput({ ...sceneOptions(current, ''), visibleTracks: trackList.visibleTracks });
 
 		if (
 			cache &&
