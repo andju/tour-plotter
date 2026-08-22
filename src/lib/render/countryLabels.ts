@@ -1,3 +1,4 @@
+import { geoPath, type GeoContext, type GeoProjection } from 'd3-geo';
 import type { CountryFeatureCollection } from '../basemap/countries';
 import type { Bbox } from '../geo/bbox';
 import type { Track } from '../gpx/types';
@@ -15,7 +16,7 @@ import {
 } from './polygonGeometry';
 import type { Font } from './renderer';
 
-/** A forward geographic projection — the minimal shape this module needs from d3-geo's `GeoProjection`, kept narrow so this module (and its tests) don't need a real one. */
+/** A forward geographic projection — the minimal shape `buildTrackObstacles` needs, kept narrow so its tests don't need a real one. Individual points never cross the antimeridian branch cut the way a country polygon's edges can, so this doesn't need geoPath's clipping. */
 export type Projector = (point: [number, number]) => [number, number] | null;
 
 export interface PlacedCountryLabel {
@@ -26,7 +27,7 @@ export interface PlacedCountryLabel {
 
 export interface CountryLabelInput {
 	countries: CountryFeatureCollection;
-	projection: Projector;
+	projection: GeoProjection;
 	visibleBbox: Bbox;
 	measureTextWidth: (value: string, font: Font) => number;
 	fontFamily: string;
@@ -49,59 +50,82 @@ function lerp(a: number, b: number, t: number): number {
 	return a + (b - a) * t;
 }
 
-/** Projects a GeoJSON ring to pixel space, or null if any vertex fails to project to a finite point. */
-function projectRing(ring: GeoJSON.Position[], projection: Projector): Point[] | null {
-	const out: Point[] = [];
-	for (const position of ring) {
-		const xy = projection(position as [number, number]);
-		if (!xy || !Number.isFinite(xy[0]) || !Number.isFinite(xy[1])) return null;
-		out.push(xy);
+/**
+ * Records a `geoPath` stream as closed pixel rings, standing in for a
+ * Canvas 2D context. `geoPath` is what applies `clipAntimeridian` — the
+ * same step every other layer in this renderer already gets via
+ * `CanvasRenderer`'s constructor — so a ring that crosses the projection's
+ * rotated branch cut arrives here already split into separate, sane rings
+ * instead of one ring whose edges sweep across the whole canvas.
+ */
+class RingContext implements GeoContext {
+	readonly rings: Point[][] = [];
+	private current: Point[] = [];
+	beginPath(): void {}
+	arc(): void {}
+	moveTo(x: number, y: number): void {
+		this.flush();
+		this.current = [[x, y]];
 	}
-	return out;
+	lineTo(x: number, y: number): void {
+		this.current.push([x, y]);
+	}
+	closePath(): void {
+		this.flush();
+	}
+	private flush(): void {
+		if (this.current.length >= 3) this.rings.push(this.current);
+		this.current = [];
+	}
+	done(): Point[][] {
+		this.flush();
+		return this.rings;
+	}
 }
 
-/** A Polygon's single ring set, or each of a MultiPolygon's parts — scored/clipped independently since a country's parts (mainland + islands) can be geographically disjoint. */
-function polygonsOf(geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon): GeoJSON.Position[][][] {
-	return geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.coordinates;
-}
-
-interface ClippedPart {
-	/** Clipped rings in GeoJSON order: outer ring first, then holes. */
+interface ClippedCountry {
+	/** All clipped rings for the feature, flattened across parts and holes — geoPath doesn't preserve per-part/per-hole structure, so this list carries no ordering guarantee beyond "one entry per surviving ring". */
 	rings: Point[][];
-	/** Outer ring area minus hole areas — the actually-visible area of this part. */
+	/** Sum of signed ring area over the clipped rings: positive outer rings minus positive-signed holes (verified empirically — geoPath emits holes at negative signed area), i.e. the actually-visible area of the feature. */
 	areaPx2: number;
 }
 
-/** Clips one polygon part (outer ring + holes) to the canvas rect, netting out hole area. Returns null if nothing of it survives clipping. */
-function clipPart(rings: GeoJSON.Position[][], projection: Projector, rect: Rect): ClippedPart | null {
+/** Projects and clips a whole feature's geometry to the canvas rect via `geoPath` (for antimeridian clipping — see `RingContext`), keeping rings with >=3 points and netting hole area out via signed area. Returns null if nothing of it survives clipping, or if the net area isn't positive (e.g. only holes survived). */
+function clipFeatureToRect(geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon, projection: GeoProjection, rect: Rect): ClippedCountry | null {
+	const recorder = new RingContext();
+	geoPath(projection, recorder)(geometry);
+
 	const clipped: Point[][] = [];
 	let area = 0;
-	rings.forEach((ring, i) => {
-		const projected = projectRing(ring, projection);
-		if (!projected) return;
-		const clippedRing = clipRingToRect(projected, rect);
-		if (clippedRing.length < 3) return;
+	for (const ring of recorder.done()) {
+		const clippedRing = clipRingToRect(ring, rect);
+		if (clippedRing.length < 3) continue;
 		clipped.push(clippedRing);
-		area += i === 0 ? Math.abs(ringArea(clippedRing)) : -Math.abs(ringArea(clippedRing));
-	});
+		area += ringArea(clippedRing);
+	}
 	if (clipped.length === 0 || area <= 0) return null;
 	return { rings: clipped, areaPx2: area };
 }
 
 /**
  * Candidate anchor points for one country, ordered most-likely-to-work
- * first: the largest visible part's own area centroid (cheap, and right for
- * the common case of an unsplit, convex-ish region), then a coarse interior
- * grid over that part's bbox, ranked by distance from the nearest edge — a
+ * first: the anchor ring's own area centroid (cheap, and right for the
+ * common case of an unsplit, convex-ish region), then a coarse interior
+ * grid over that ring's bbox, ranked by distance from the nearest edge — a
  * cheap approximation of the pole of inaccessibility, covering concave or
- * split regions where the centroid itself falls outside the shape.
+ * split regions where the centroid itself falls outside the shape. The
+ * anchor ring is the largest-by-positive-signed-area ring among all of the
+ * feature's clipped rings (geoPath flattens parts and holes together, so
+ * "largest part's outer ring" is found this way rather than from any
+ * surviving per-part structure); containment checks below still test
+ * against every ring, since even-odd already accounts for holes.
  */
-function candidateAnchors(parts: ClippedPart[]): Point[] {
-	const largest = parts.reduce((a, b) => (b.areaPx2 > a.areaPx2 ? b : a));
+function candidateAnchors(rings: Point[][]): Point[] {
+	const anchorRing = rings.reduce((a, b) => (ringArea(b) > ringArea(a) ? b : a));
 	const candidates: Point[] = [];
 
-	const centroid = ringCentroid(largest.rings[0]);
-	if (Number.isFinite(centroid[0]) && Number.isFinite(centroid[1]) && pointInRings(centroid, largest.rings)) {
+	const centroid = ringCentroid(anchorRing);
+	if (Number.isFinite(centroid[0]) && Number.isFinite(centroid[1]) && pointInRings(centroid, rings)) {
 		candidates.push(centroid);
 	}
 
@@ -109,7 +133,7 @@ function candidateAnchors(parts: ClippedPart[]): Point[] {
 	let y0 = Infinity;
 	let x1 = -Infinity;
 	let y1 = -Infinity;
-	for (const [x, y] of largest.rings[0]) {
+	for (const [x, y] of anchorRing) {
 		x0 = Math.min(x0, x);
 		x1 = Math.max(x1, x);
 		y0 = Math.min(y0, y);
@@ -120,8 +144,8 @@ function candidateAnchors(parts: ClippedPart[]): Point[] {
 	for (let i = 1; i < GRID_STEPS; i++) {
 		for (let j = 1; j < GRID_STEPS; j++) {
 			const pt: Point = [x0 + ((x1 - x0) * i) / GRID_STEPS, y0 + ((y1 - y0) * j) / GRID_STEPS];
-			if (!pointInRings(pt, largest.rings)) continue;
-			graded.push({ pt, d: distanceToRings(pt, largest.rings) });
+			if (!pointInRings(pt, rings)) continue;
+			graded.push({ pt, d: distanceToRings(pt, rings) });
 		}
 	}
 	// Every interior grid point is tried, not just the top few: each one is a
@@ -236,7 +260,7 @@ export function layoutCountryLabels(
 
 	interface Scored {
 		text: string;
-		parts: ClippedPart[];
+		rings: Point[][];
 		areaPx2: number;
 	}
 
@@ -244,17 +268,10 @@ export function layoutCountryLabels(
 	for (const feature of countries.features) {
 		if (!bboxIntersects(featureBbox(feature), visibleBbox)) continue;
 
-		const parts: ClippedPart[] = [];
-		let totalArea = 0;
-		for (const rings of polygonsOf(feature.geometry)) {
-			const clipped = clipPart(rings, projection, rect);
-			if (!clipped) continue;
-			parts.push(clipped);
-			totalArea += clipped.areaPx2;
-		}
-		if (parts.length === 0 || totalArea < minAreaPx2) continue;
+		const clipped = clipFeatureToRect(feature.geometry, projection, rect);
+		if (!clipped || clipped.areaPx2 < minAreaPx2) continue;
 
-		scored.push({ text: feature.properties.name.toUpperCase(), parts, areaPx2: totalArea });
+		scored.push({ text: feature.properties.name.toUpperCase(), rings: clipped.rings, areaPx2: clipped.areaPx2 });
 	}
 
 	// Largest visible country first, so the dominant one on screen gets first pick of the space.
@@ -268,10 +285,10 @@ export function layoutCountryLabels(
 		const paddingPx = fontSizePx * 0.4;
 		const halfWidth = textWidth / 2 + paddingPx;
 		const halfHeight = fontSizePx / 2 + paddingPx;
-		const allRings = country.parts.flatMap((p) => p.rings);
+		const allRings = country.rings;
 
 		let accepted: { box: Box; xy: Point } | null = null;
-		for (const anchor of candidateAnchors(country.parts)) {
+		for (const anchor of candidateAnchors(country.rings)) {
 			const box: Box = {
 				x0: anchor[0] - halfWidth,
 				y0: anchor[1] - halfHeight,
