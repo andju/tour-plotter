@@ -125,7 +125,7 @@
 		height: 1.6rem;
 		flex-shrink: 0;
 		padding: 0;
-		border: 1px solid #ccc;
+		border: 1px solid var(--color-border);
 		border-radius: 4px;
 		cursor: pointer;
 	}
@@ -134,11 +134,11 @@
 		top: calc(100% + 4px);
 		left: 0;
 		z-index: 20;
-		background: white;
-		border: 1px solid #ccc;
+		background: var(--color-bg-elevated);
+		border: 1px solid var(--color-border);
 		border-radius: 6px;
 		padding: 0.5rem;
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+		box-shadow: 0 4px 12px var(--shadow-color);
 		width: 9.5rem;
 	}
 	.grid {
@@ -155,7 +155,7 @@
 		cursor: pointer;
 	}
 	.chip.selected {
-		outline: 2px solid #5b8def;
+		outline: 2px solid var(--color-accent);
 		outline-offset: 1px;
 	}
 	.hex-field {
@@ -164,18 +164,20 @@
 		gap: 0.3rem;
 		margin-top: 0.5rem;
 		font-size: 0.8rem;
-		color: #555;
+		color: var(--color-text-muted);
 	}
 	.hex {
 		flex: 1;
 		min-width: 0;
-		border: 1px solid #ddd;
+		border: 1px solid var(--color-border-input);
 		border-radius: 4px;
+		background: var(--color-bg-elevated);
+		color: var(--color-text);
 		font-size: 0.85rem;
 		font-family: monospace;
 		padding: 0.1rem 0.3rem;
 	}
 	.hex.invalid {
-		border-color: #a02020;
+		border-color: var(--color-danger);
 	}
 </style>

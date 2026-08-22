@@ -76,7 +76,7 @@
 
 <style>
 	.empty {
-		color: #888;
+		color: var(--color-text-subtle);
 	}
 	.track-list {
 		list-style: none;
@@ -85,7 +85,7 @@
 	}
 	.track-list li {
 		padding: 0.4rem 0;
-		border-bottom: 1px solid #eee;
+		border-bottom: 1px solid var(--color-border-subtle);
 	}
 	.row {
 		display: flex;
@@ -105,6 +105,7 @@
 		min-width: 0;
 		border: none;
 		background: transparent;
+		color: var(--color-text);
 		font-size: 0.95rem;
 	}
 	.width,
@@ -123,8 +124,10 @@
 	.numeric {
 		width: 3.2rem;
 		flex-shrink: 0;
-		border: 1px solid #ddd;
+		border: 1px solid var(--color-border-input);
 		border-radius: 4px;
+		background: var(--color-bg-elevated);
+		color: var(--color-text);
 		font-size: 0.85rem;
 		padding: 0.1rem 0.2rem;
 	}
@@ -133,7 +136,7 @@
 		width: 2.8rem;
 		text-align: right;
 		font-size: 0.85rem;
-		color: #555;
+		color: var(--color-text-muted);
 	}
 	.reorder {
 		display: flex;
@@ -144,12 +147,13 @@
 		align-items: center;
 		gap: 0.3rem;
 		font-size: 0.85rem;
-		color: #555;
+		color: var(--color-text-muted);
 	}
 	button {
 		flex-shrink: 0;
 		border: none;
 		background: transparent;
+		color: var(--color-text);
 		cursor: pointer;
 		font-size: 0.9rem;
 		padding: 0.2rem 0.3rem;

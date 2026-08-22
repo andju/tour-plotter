@@ -53,23 +53,23 @@
 
 <style>
 	.dropzone {
-		border: 2px dashed #bbb;
+		border: 2px dashed var(--color-dropzone-border);
 		border-radius: 8px;
 		padding: 2rem;
 		text-align: center;
 		cursor: pointer;
-		color: #666;
+		color: var(--color-text-muted);
 	}
 	.dropzone.dragging {
-		border-color: #5b8def;
-		background: #eef4ff;
+		border-color: var(--color-accent);
+		background: var(--color-dragging-bg);
 	}
 	.errors {
 		margin-top: 0.5rem;
 		padding: 0.5rem 1rem;
-		background: #fdecec;
+		background: var(--color-danger-bg);
 		border-radius: 6px;
-		color: #a02020;
+		color: var(--color-danger);
 	}
 	.errors p {
 		margin: 0.25rem 0;

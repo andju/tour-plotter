@@ -402,12 +402,12 @@
 		display: flex;
 		flex-direction: column;
 		font-size: 0.85rem;
-		color: #555;
+		color: var(--color-text-muted);
 		gap: 0.2rem;
 	}
 	.field-label {
 		font-size: 0.85rem;
-		color: #555;
+		color: var(--color-text-muted);
 	}
 	label.checkbox {
 		flex-direction: row;
@@ -432,14 +432,16 @@
 	}
 	.hint {
 		font-size: 0.8rem;
-		color: #888;
+		color: var(--color-text-subtle);
 	}
 	input[type='number'],
 	select,
 	textarea {
 		padding: 0.3rem;
-		border: 1px solid #ccc;
+		border: 1px solid var(--color-border);
 		border-radius: 4px;
+		background: var(--color-bg-elevated);
+		color: var(--color-text);
 	}
 	textarea {
 		font: inherit;
@@ -447,7 +449,7 @@
 	}
 	.segmented {
 		display: flex;
-		border: 1px solid #ccc;
+		border: 1px solid var(--color-border);
 		border-radius: 6px;
 		overflow: hidden;
 	}
@@ -455,17 +457,17 @@
 		flex: 1;
 		padding: 0.4rem 0.5rem;
 		border: none;
-		background: white;
-		color: #555;
+		background: var(--color-bg-elevated);
+		color: var(--color-text-muted);
 		cursor: pointer;
 		font-size: 0.85rem;
 	}
 	.segmented button.active {
-		background: #5b8def;
-		color: white;
+		background: var(--color-accent);
+		color: var(--color-accent-text);
 	}
 	.error {
-		color: #a02020;
+		color: var(--color-danger);
 		font-size: 0.85rem;
 	}
 	.actions {
@@ -477,12 +479,12 @@
 		padding: 0.5rem 1rem;
 		border: none;
 		border-radius: 6px;
-		background: #5b8def;
-		color: white;
+		background: var(--color-accent);
+		color: var(--color-accent-text);
 		cursor: pointer;
 	}
 	button:disabled {
-		background: #ccc;
+		background: var(--color-disabled-bg);
 		cursor: not-allowed;
 	}
 </style>

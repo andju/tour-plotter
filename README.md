@@ -1,4 +1,7 @@
-<img src="./src/lib/assets/logo-wordmark.svg" alt="Track Mapper" height="150">
+<picture>
+   <source srcset="./src/lib/assets/logo-wordmark-dark.svg" media="(prefers-color-scheme: dark)" />
+   <img src="./src/lib/assets/logo-wordmark.svg" alt="Tour Plotter" height="100" />
+</picture>
 
 Renders one or more GPX tracks over a minimal basemap (no roads, terrain, or
 landuse) and exports the result as a PNG or SVG at a user-chosen resolution.

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import logoWordmark from "$lib/assets/logo-wordmark.svg";
+	import logoWordmarkDark from "$lib/assets/logo-wordmark-dark.svg";
 	import DropZone from "$lib/components/DropZone.svelte";
 	import ExportPanel from "$lib/components/ExportPanel.svelte";
 	import PreviewCanvas from "$lib/components/PreviewCanvas.svelte";
@@ -11,7 +12,10 @@
 </svelte:head>
 
 <main>
-	<img src={logoWordmark} alt="Tour Plotter" height="100" />
+	<picture>
+		<source srcset={logoWordmarkDark} media="(prefers-color-scheme: dark)" />
+		<img src={logoWordmark} alt="Tour Plotter" height="100" />
+	</picture>
 
 	<div class="layout">
 		<div class="sidebar">
@@ -31,6 +35,7 @@
 		margin: 0 auto;
 		padding: 1.5rem;
 		font-family: system-ui, sans-serif;
+		color: var(--color-text);
 	}
 	.layout {
 		display: grid;

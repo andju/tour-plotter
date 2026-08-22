@@ -1,5 +1,6 @@
 <script lang="ts">
 	import favicon from '$lib/assets/favicon.svg';
+	import '../app.css';
 	import '@fontsource/roboto/400.css';
 	import '@fontsource/roboto/700.css';
 	import '@fontsource/roboto/400-italic.css';

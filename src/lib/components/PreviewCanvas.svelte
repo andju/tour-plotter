@@ -404,7 +404,7 @@
 		border-radius: 8px;
 	}
 	.map-layer {
-		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+		box-shadow: 0 1px 4px var(--shadow-color);
 	}
 	.text-layer {
 		position: absolute;
@@ -416,10 +416,10 @@
 		top: 50%;
 		left: 50%;
 		transform: translate(-50%, -50%);
-		color: #888;
+		color: var(--color-text-subtle);
 	}
 	.hint.error {
-		color: #a02020;
+		color: var(--color-danger);
 	}
 	/* A pill, not the centred hint: it sits over a map that's still showing
 	   the previous render, so it needs its own background to stay legible. */
@@ -433,16 +433,16 @@
 		margin: 0;
 		padding: 0.3rem 0.6rem;
 		border-radius: 999px;
-		background: rgba(255, 255, 255, 0.92);
-		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+		background: var(--color-overlay-bg);
+		box-shadow: 0 1px 4px var(--shadow-color-strong);
 		font-size: 0.8rem;
-		color: #555;
+		color: var(--color-text-muted);
 	}
 	.spinner {
 		width: 0.75rem;
 		height: 0.75rem;
-		border: 2px solid #ccc;
-		border-top-color: #5b8def;
+		border: 2px solid var(--color-border);
+		border-top-color: var(--color-accent);
 		border-radius: 50%;
 		animation: spin 0.7s linear infinite;
 	}
