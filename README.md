@@ -12,7 +12,7 @@ level) and fits a projection to it. There is no manual pan/zoom step.
 
 <picture>
    <source srcset="./docs/app-screen-shot-dark.png" media="(prefers-color-scheme: dark)" />
-   <img src="./docs/app-screen-shot.png" alt="Tour Plotter" height="100" />
+   <img src="./docs/app-screen-shot.png" alt="Tour Plotter Screenshot" />
 </picture>
 
 ## Installation
