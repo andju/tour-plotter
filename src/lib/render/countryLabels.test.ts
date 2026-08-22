@@ -6,7 +6,8 @@ import type { CountryFeatureCollection } from '../basemap/countries';
 import type { Bbox } from '../geo/bbox';
 import { buildProjection } from '../geo/projection';
 import { buildTrackObstacles, layoutCountryLabels, type CountryLabelInput, type Projector } from './countryLabels';
-import { LabelSpace } from './labels';
+import { LabelSpace, type Box } from './labels';
+import { segmentIntersectsRect, type Point } from './polygonGeometry';
 
 // Identity projection: only used for buildTrackObstacles, which projects
 // individual points and has no antimeridian-clipping concerns of its own.
@@ -80,6 +81,10 @@ function projectedCenter(projection: GeoProjection, lon0: number, lat0: number, 
 	return [(xA + xB) / 2, (yA + yB) / 2];
 }
 
+function boxesOverlap(a: Box, b: Box): boolean {
+	return a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0;
+}
+
 describe('layoutCountryLabels', () => {
 	it('labels a country large enough to clear the minimum-area gate', () => {
 		const input = baseInput({ countries: countries(square('France', -8, -8, 8, 8)) });
@@ -128,9 +133,37 @@ describe('layoutCountryLabels', () => {
 		expect(placed[0].xy).not.toEqual(center);
 	});
 
-	it('drops a country when a track crosses every candidate anchor', () => {
+	it('never covers a reserved city label or city dot', () => {
 		const projection = testProjection();
 		const input = baseInput({ projection, countries: countries(square('France', -8, -8, 8, 8)) });
+
+		const space = new LabelSpace(64);
+		const reserved: Box[] = [];
+		// A spread of reserved boxes across the country's interior, not just
+		// one over the centroid — so this test isn't sensitive to which
+		// candidate anchor the algorithm happens to accept.
+		for (const lon of [-4, 0, 4]) {
+			for (const lat of [-4, 0, 4]) {
+				const [x, y] = projection([lon, lat])!;
+				const box: Box = { x0: x - 15, y0: y - 15, x1: x + 15, y1: y + 15 };
+				reserved.push(box);
+				space.insert(box);
+			}
+		}
+
+		const placed = layoutCountryLabels(input, 1, CANVAS.width, CANVAS.height, space, null);
+
+		for (const label of placed) {
+			for (const box of reserved) {
+				expect(boxesOverlap(label.box, box)).toBe(false);
+			}
+		}
+	});
+
+	it('never covers a visible track', () => {
+		const projection = testProjection();
+		const input = baseInput({ projection, countries: countries(square('France', -8, -8, 8, 8)) });
+		const trackSegment: [Point, Point] = [projection([-10, 0])!, projection([10, 0])!];
 		const obstacles = buildTrackObstacles(
 			[
 				{
@@ -148,15 +181,48 @@ describe('layoutCountryLabels', () => {
 			projection
 		);
 
-		// A single horizontal track through the middle doesn't necessarily
-		// block every one of the ~7 candidate anchors, so assert the weaker,
-		// still-meaningful property: at minimum the centroid anchor (which
-		// sits exactly on the track's latitude) is never accepted.
-		const centroidAnchor = projectedCenter(projection, -8, -8, 8, 8);
 		const placed = layoutCountryLabels(input, 1, CANVAS.width, CANVAS.height, new LabelSpace(64), obstacles);
-		if (placed.length > 0) {
-			expect(placed[0].xy).not.toEqual(centroidAnchor);
+
+		for (const label of placed) {
+			expect(segmentIntersectsRect(trackSegment[0], trackSegment[1], label.box)).toBe(false);
 		}
+	});
+
+	it('drops a country whose interior is entirely covered', () => {
+		const projection = testProjection();
+		const input = baseInput({ projection, countries: countries(square('France', -8, -8, 8, 8)) });
+
+		// A serpentine track snaking across the full country at a fixed
+		// latitude step. At this frame's scale (BBOX spans 20 degrees over
+		// 400px, roughly 20px/degree near the equator), a 0.2-degree step
+		// projects to well under 5px between rows — far tighter than any
+		// possible label box height (fontSizePx in [13, 24], plus 0.8x
+		// padding, i.e. at least ~23px tall). No candidate anchor's box can
+		// fit in the gap between two rows, and each row spans the full
+		// country width (-10 to 10 in longitude, wider than the country
+		// itself), so every candidate anchor is blocked.
+		const latStep = 0.2;
+		const points: { lon: number; lat: number; ele: null; time: null }[] = [];
+		for (let lat = -9, row = 0; lat <= 9; lat += latStep, row++) {
+			const atStart = row % 2 === 0;
+			points.push({ lon: atStart ? -10 : 10, lat, ele: null, time: null });
+			points.push({ lon: atStart ? 10 : -10, lat, ele: null, time: null });
+		}
+		const obstacles = buildTrackObstacles(
+			[
+				{
+					id: 't-serpentine',
+					name: 'Serpentine track',
+					segments: [points],
+					style: { color: '#f00', widthPx: 3, opacity: 1, visible: true }
+				}
+			],
+			projection
+		);
+
+		const placed = layoutCountryLabels(input, 1, CANVAS.width, CANVAS.height, new LabelSpace(64), obstacles);
+
+		expect(placed).toHaveLength(0);
 	});
 
 	it('scales font size up for a country that fills more of the canvas', () => {

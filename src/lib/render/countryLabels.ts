@@ -23,6 +23,16 @@ export interface PlacedCountryLabel {
 	text: string;
 	xy: [number, number];
 	fontSizePx: number;
+	/**
+	 * The label's reserved footprint (text plus padding), in the same pixel
+	 * space as `xy` — exactly the box that was checked against `space` and
+	 * `trackObstacles` before this label was accepted. Exposed so the
+	 * no-overlap requirement (a country name must never cover a city dot,
+	 * city label, or visible track) is directly assertable from a placed
+	 * label alone, without recomputing padding/font metrics. Unused by
+	 * `scene.ts`, which only needs `xy`/`fontSizePx` to draw the glyph.
+	 */
+	box: Box;
 }
 
 export interface CountryLabelInput {
@@ -148,13 +158,15 @@ function candidateAnchors(rings: Point[][]): Point[] {
 			graded.push({ pt, d: distanceToRings(pt, rings) });
 		}
 	}
-	// Every interior grid point is tried, not just the top few: each one is a
-	// cheap O(1)-ish check (grid-indexed collision + a handful of
-	// point-in-rings tests), so there's no real cost to exhausting the grid
-	// — and a hard cutoff here would mean giving up on a country just
-	// because its most-central candidates happen to sit under an
-	// already-placed city label, when plenty of valid room remains further
-	// out.
+	// Every interior grid point is tried, not just the top few. Each check
+	// (pointInRings + distanceToRings) scans every vertex of every ring, so
+	// this is O(GRID_STEPS^2 * V), not O(1) — but V is small enough at
+	// Natural Earth 50m's vertex counts that it stays cheap in absolute
+	// terms: warm layout is ~7ms for a Germany frame, ~11ms for a US frame,
+	// ~50ms for a whole-world frame (all bitmap-cached, see layerCache.ts).
+	// A hard cutoff here would mean giving up on a country just because its
+	// most-central candidates happen to sit under an already-placed city
+	// label, when plenty of valid room remains further out.
 	graded.sort((a, b) => b.d - a.d);
 	for (const { pt } of graded) candidates.push(pt);
 
@@ -315,7 +327,7 @@ export function layoutCountryLabels(
 
 		if (!accepted) continue;
 		space.insert(accepted.box);
-		placed.push({ text: country.text, xy: accepted.xy, fontSizePx });
+		placed.push({ text: country.text, xy: accepted.xy, fontSizePx, box: accepted.box });
 	}
 
 	return placed;

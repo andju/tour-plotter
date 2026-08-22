@@ -618,6 +618,13 @@ describe('composeScene — places', () => {
 });
 
 describe('composeScene — country labels', () => {
+	// Wound to match the real Natural Earth data's convention (see
+	// countryLabels.test.ts's `square()` fixture helper) — the opposite
+	// winding hits a d3-geo edge case for a simple symmetric polygon on an
+	// unclipped Mercator projection (geoPath emits a spurious extra ring
+	// enclosing the whole projected plane), which corrupts anchor placement
+	// even though it doesn't stop the label from appearing at all, which is
+	// all the other tests in this suite check for.
 	function countryFixture(name: string): CountryFeatureCollection {
 		return {
 			type: 'FeatureCollection',
@@ -630,9 +637,9 @@ describe('composeScene — country labels', () => {
 						coordinates: [
 							[
 								[13.0, 52.0],
-								[13.5, 52.0],
-								[13.5, 52.5],
 								[13.0, 52.5],
+								[13.5, 52.5],
+								[13.5, 52.0],
 								[13.0, 52.0]
 							]
 						]
@@ -690,6 +697,44 @@ describe('composeScene — country labels', () => {
 			countries: countryFixture('France')
 		});
 		expect(countryFontSize(large)).toBeCloseTo(countryFontSize(small) * 2, 1);
+	});
+
+	it('never overlaps the country label with a city label it shares space with', () => {
+		// naturalEarthBasemap()'s default 'Testville' place sits at the exact
+		// center of this country fixture (see the "draws country labels
+		// before" test above) — the country label's own first candidate
+		// anchor is that same centroid, so this only passes if the
+		// no-overlap guard actually routed the country name elsewhere.
+		const svg = renderAt(1000, 1000, {
+			overlay: { ...overlay, showCountryLabels: true, citySize: 10 },
+			countries: countryFixture('France')
+		});
+
+		// Reconstructs each label's approximate glyph box straight from its
+		// rendered <text> attributes, undoing SvgRenderer.text's baseline
+		// shift (see svg.ts) and re-deriving width via this file's own
+		// measureTextWidth stand-in — deliberately independent of
+		// countryLabels.ts/labels.ts's internal padding math, so this checks
+		// the actual rendered requirement rather than re-asserting the
+		// placement algorithm's own bookkeeping.
+		function textBox(text: string, anchor: 'start' | 'middle') {
+			const match = svg.match(new RegExp(`<text([^>]*)>${text}</text>`));
+			expect(match).not.toBeNull();
+			const attrs = match![1];
+			const x = Number(attrs.match(/x="(-?[\d.]+)"/)![1]);
+			const ySvg = Number(attrs.match(/y="(-?[\d.]+)"/)![1]);
+			const fontSize = Number(attrs.match(/font-size="([\d.]+)"/)![1]);
+			const y = ySvg - 0.35 * fontSize;
+			const width = measureTextWidth(text, { sizePx: fontSize });
+			const x0 = anchor === 'middle' ? x - width / 2 : x;
+			return { x0, y0: y - fontSize / 2, x1: x0 + width, y1: y + fontSize / 2 };
+		}
+
+		const countryBox = textBox('FRANCE', 'middle');
+		const cityBox = textBox('Testville', 'start');
+		const overlaps =
+			countryBox.x0 < cityBox.x1 && countryBox.x1 > cityBox.x0 && countryBox.y0 < cityBox.y1 && countryBox.y1 > cityBox.y0;
+		expect(overlaps).toBe(false);
 	});
 });
 
